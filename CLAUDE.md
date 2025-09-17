@@ -1,5 +1,14 @@
 ## Claude Starter Brief — PlasmaDX (DX12 + DXR)
 
+### 🚨 CRITICAL WORKFLOW ISSUE - Session Context Loss (PlasmaDX Project)
+**IMPORTANT**: When continuing from previous sessions, Claude may lose context about completed work and fail to create proper result files. The workflow requires:
+1. Tasks are defined in `changes/DXR_XXXX_name.json`
+2. When completed, results MUST be written to `results/DXR_XXXX_name_result.json` with same prefix
+3. Recent work on DXR_0017, DXR_0018, DXR_0019 was completed but result files were never created
+4. This causes confusion about project state and breaks the Claude ↔ GPT-5 ↔ Ben workflow
+5. **ALWAYS** check changes/ vs results/ directories to identify missing completion reports
+6. **NOTE**: This is PlasmaDX (DirectX), not PlasmaVulkan - different project entirely
+
 ### Mission
 Build a real-time (and offline-capable) ray traced volumetric plasma renderer using DirectX 12 + DXR, with strong tooling (PIX) and clear, testable milestones.
 

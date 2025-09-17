@@ -7,6 +7,7 @@ This will give us the complete D3D12 reference!
 import json
 import sqlite3
 import re
+import sys
 from pathlib import Path
 from typing import List, Dict, Optional
 

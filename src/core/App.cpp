@@ -839,19 +839,12 @@ bool App::createHDRTexture() {
     D3D12_HEAP_PROPERTIES heapProps = {};
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
 
-    D3D12_CLEAR_VALUE clearValue = {};
-    clearValue.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    clearValue.Color[0] = 0.0f;
-    clearValue.Color[1] = 0.0f;
-    clearValue.Color[2] = 0.0f;
-    clearValue.Color[3] = 1.0f;
-
     HRESULT hr = m_device->CreateCommittedResource(
         &heapProps,
         D3D12_HEAP_FLAG_NONE,
         &texDesc,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        &clearValue,
+        nullptr, // No optimized clear value for UAV-only textures
         IID_PPV_ARGS(&m_hdrTexture));
 
     if (FAILED(hr)) {
