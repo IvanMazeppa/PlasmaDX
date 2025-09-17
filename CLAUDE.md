@@ -7,7 +7,7 @@
 3. Recent work on DXR_0017, DXR_0018, DXR_0019 was completed but result files were never created
 4. This causes confusion about project state and breaks the Claude ↔ GPT-5 ↔ Ben workflow
 5. **ALWAYS** check changes/ vs results/ directories to identify missing completion reports
-6. **NOTE**: This is PlasmaDX (DirectX), not PlasmaVulkan - different project entirely
+6. **NOTE**: This is PlasmaDX (DirectX), not PlasmaVulkan - different project entirely, ensure you're in the current directory at all times.
 
 ### Mission
 Build a real-time (and offline-capable) ray traced volumetric plasma renderer using DirectX 12 + DXR, with strong tooling (PIX) and clear, testable milestones.

@@ -77,6 +77,7 @@ void Pipeline::Create() {
 
 		// Build subobjects array
 		std::vector<D3D12_STATE_SUBOBJECT> subobjects;
+		subobjects.reserve(7); // Ensure no reallocation invalidates association pointers
 
 		// 1. DXIL Library subobject
 		D3D12_DXIL_LIBRARY_DESC dxilLibDesc = {};
@@ -118,6 +119,7 @@ void Pipeline::Create() {
 		subobjects.push_back({});
 		subobjects.back().Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
 		subobjects.back().pDesc = &shaderConfig;
+		size_t shaderConfigIndex = subobjects.size() - 1;
 
 		// 3a. Shader Config Association (associate all shaders with shader config)
 		std::vector<LPCWSTR> shaderConfigExports;
@@ -129,7 +131,7 @@ void Pipeline::Create() {
 		}
 
 		D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shaderConfigAssoc = {};
-		shaderConfigAssoc.pSubobjectToAssociate = &subobjects.back(); // Points to shader config subobject
+		shaderConfigAssoc.pSubobjectToAssociate = &subobjects[shaderConfigIndex]; // Stable pointer due to reserve()
 		shaderConfigAssoc.NumExports = static_cast<UINT>(shaderConfigExports.size());
 		shaderConfigAssoc.pExports = shaderConfigExports.data();
 

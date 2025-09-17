@@ -25,6 +25,8 @@ add_executable(PlasmaDX WIN32
     src/renderer/Composite.h
     src/utils/FileLoader.cpp
     src/utils/FileLoader.h
+    src/utils/DescriptorHeap.cpp
+    src/utils/DescriptorHeap.h
     src/utils/Logger.h
 )
 

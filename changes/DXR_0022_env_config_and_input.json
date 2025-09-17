@@ -1,0 +1,35 @@
+{
+  "id": "DXR_0022",
+  "title": "Env var helpers and minimal input toggles",
+  "owner": "GPT-5",
+  "motivation": "Standardize environment configuration without MSVC warnings and add simple runtime toggles for debugging.",
+  "scope": {
+    "files": [
+      "src/utils/Env.h",
+      "src/utils/Env.cpp",
+      "src/core/App.h",
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "_dupenv_s-based helper to query bool/string env vars",
+    "Replace direct getenv calls",
+    "Add input toggles: pause (P), toggle debug layer readouts (F1)"
+  ],
+  "acceptance": [
+    "No MSVC C4996 getenv warnings",
+    "Startup logs reflect env-controlled toggles",
+    "Input toggles log state changes"
+  ],
+  "implementation": [
+    "Env::GetBool(name, default) and Env::GetString(name)",
+    "Use in device creation matrix and quit-on-removal toggle",
+    "Add WndProc handling for P and F1"
+  ],
+  "test_plan": [
+    "Set env vars and verify behavior/logs",
+    "Press P/F1 at runtime and observe logs/state"
+  ]
+}
+
+

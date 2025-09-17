@@ -1,0 +1,23 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.comp": "glsl",
+			"*.vert": "glsl",
+			"*.frag": "glsl",
+			"*.geom": "glsl",
+			"*.mesh": "glsl",
+			"*.task": "glsl",
+			"*.rgen": "glsl",
+			"*.rint": "glsl",
+			"*.rahit": "glsl",
+			"*.rchit": "glsl",
+			"*.rmiss": "glsl",
+			"*.rcall": "glsl"
+		}
+	}
+}

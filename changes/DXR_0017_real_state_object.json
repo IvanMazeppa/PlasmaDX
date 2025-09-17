@@ -30,13 +30,25 @@
     "- Shader config: payload 32 bytes (float4 RGBA), attribute 8 bytes (float2 barycentrics)",
     "- Global root signature: reuse existing minimal SRV(t0) + UAV(u0); keep simple for v1",
     "- Pipeline config: MaxTraceRecursionDepth=1",
+    "Reserve subobject vector capacity up front (e.g., reserve(6)) so pointers used by associations remain valid",
+    "Store the index of the Shader Config subobject; set association->pSubobjectToAssociate = &subobjects[index] AFTER all pushes, or reserve capacity",
+    "Ensure export names exactly match HLSL entry names in raytracing_lib.hlsl ([shader(\"raygeneration\")] RayGen, [shader(\"miss\")] Miss, [shader(\"closesthit\")] ClosestHit)",
     "Call ID3D12Device5::CreateStateObject and then QueryInterface for ID3D12StateObjectProperties",
     "Cache m_pso and m_psoProps; expose getters"
   ],
   "notes": [
     "Keep the root signature minimal; local roots not required in 0017",
     "Do not change SBT layout yet; 0019 adds camera/local roots",
-    "If CreateStateObject fails, log HRESULT and keep current raster fallback path"
+    "If CreateStateObject fails, log HRESULT and keep current raster fallback path",
+    "E_INVALIDARG (0x80070057) commonly occurs if subobject association points to an invalid subobject (vector reallocation) or an export name is misspelled/not present in the DXIL library",
+    "Validate DXIL contains the expected exports (use dxc/dxil reflection or temporarily reduce to a library with only RayGen+Miss to isolate issues)"
+  ],
+  "troubleshooting": [
+    "Reserve subobjects: subobjects.reserve(6); capture shaderConfigIndex before pushing more, then reference &subobjects[shaderConfigIndex] in the association",
+    "Confirm HLSL function names exactly: RayGen/Miss/ClosestHit. If your functions are named RayGenMain, update exports accordingly",
+    "Ensure global root signature pointer lifetime is valid for CreateStateObject (use a local ID3D12RootSignature* that points to the ComPtr held root)",
+    "Start minimal: omit the hit group; create library with only RayGen and Miss; once PSO succeeds, add ClosestHit + hit group",
+    "Verify DXC target: lib_6_3, and that the produced .dxil is the one being loaded (log absolute path and file size)"
   ],
   "test_plan": [
     "Run without PIX: animated gradient should appear; logs show PSO creation success",

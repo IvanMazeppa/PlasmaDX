@@ -3,6 +3,16 @@
 #include <d3dcompiler.h>
 #include <stdexcept>
 
+// PIX for Windows
+#ifdef USE_PIX
+#include <pix.h>
+#define PIX_EVENT(cmdList, name) PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, name)
+#define PIX_EVENT_END(cmdList) PIXEndEvent(cmdList)
+#else
+#define PIX_EVENT(cmdList, name) ((void)0)
+#define PIX_EVENT_END(cmdList) ((void)0)
+#endif
+
 using Microsoft::WRL::ComPtr;
 
 // Simple fullscreen vertex shader
@@ -189,6 +199,8 @@ void Composite::Draw(ID3D12GraphicsCommandList* cmdList,
                     D3D12_GPU_DESCRIPTOR_HANDLE hdrSrvHandle,
                     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle) {
 
+    PIX_EVENT(cmdList, "Fullscreen Composite Draw");
+
     // Set pipeline state and root signature
     cmdList->SetPipelineState(m_pipelineState.Get());
     cmdList->SetGraphicsRootSignature(m_rootSignature.Get());
@@ -208,4 +220,6 @@ void Composite::Draw(ID3D12GraphicsCommandList* cmdList,
     // Draw fullscreen triangle (3 vertices, no vertex buffer needed)
     cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmdList->DrawInstanced(3, 1, 0, 0);
+
+    PIX_EVENT_END(cmdList);
 }

@@ -8,12 +8,40 @@
 #include <cstdint>
 #include <memory>
 
+// PIX for Windows
+#ifdef USE_PIX
+#include <pix.h>
+#define PIX_EVENT(cmdList, name) PIXBeginEvent(cmdList, PIX_COLOR_DEFAULT, name)
+#define PIX_EVENT_END(cmdList) PIXEndEvent(cmdList)
+#define PIX_SET_MARKER(cmdList, name) PIXSetMarker(cmdList, PIX_COLOR_DEFAULT, name)
+#else
+#define PIX_EVENT(cmdList, name) ((void)0)
+#define PIX_EVENT_END(cmdList) ((void)0)
+#define PIX_SET_MARKER(cmdList, name) ((void)0)
+#endif
+
+// RAII PIX scoped event helper
+class ScopedPixEvent {
+public:
+    ScopedPixEvent(ID3D12GraphicsCommandList* cmdList, const char* name) : m_cmdList(cmdList) {
+        PIX_EVENT(m_cmdList, name);
+    }
+    ~ScopedPixEvent() {
+        PIX_EVENT_END(m_cmdList);
+    }
+private:
+    ID3D12GraphicsCommandList* m_cmdList;
+};
+
+#define PIX_SCOPED_EVENT(cmdList, name) ScopedPixEvent _pix_event(cmdList, name)
+
 class Renderer;
 class ASBuilder;
 class Pipeline;
 class SBT;
 class Composite;
 class Camera;
+class DescriptorHeap;
 
 class App {
 public:
@@ -94,8 +122,11 @@ private:
 	// HDR output resources (DXR_0018)
 	std::unique_ptr<Composite> m_composite;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_hdrTexture;
-	UINT m_hdrSrvIndex = 0;  // Index in SRV/UAV heap
-	UINT m_hdrUavIndex = 1;  // Index in SRV/UAV heap
+	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
+	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
+
+	// Descriptor heap allocator (DXR_0021)
+	std::unique_ptr<DescriptorHeap> m_descriptorAllocator;
 
 	// Camera system (DXR_0019)
 	std::unique_ptr<Camera> m_camera;

@@ -1,6 +1,7 @@
 #include "App.h"
 #include "Camera.h"
 #include "../utils/Logger.h"
+#include "../utils/DescriptorHeap.h"
 #include "../dxr/ASBuilder.h"
 #include "../dxr/Pipeline.h"
 #include "../dxr/SBT.h"
@@ -565,15 +566,21 @@ bool App::initializeDXR() {
 		return false;
 	}
 
-	// Create SRV/UAV heap for DXR
-	D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-	heapDesc.NumDescriptors = 16;  // TLAS SRV, output UAV, etc.
-	heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	if (FAILED(m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvUavHeap)))) {
-		LOGE("Failed to create SRV/UAV heap");
+	// Create descriptor heap allocator (DXR_0021)
+	m_descriptorAllocator = std::make_unique<DescriptorHeap>(
+		m_device.Get(),
+		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+		64,  // Capacity: plenty of room for growth (TLAS, HDR, volume, samplers, etc.)
+		true // Shader visible
+	);
+
+	if (!m_descriptorAllocator->Initialize()) {
+		LOGE("Failed to initialize descriptor heap allocator");
 		return false;
 	}
+
+	// Keep reference to underlying heap for compatibility
+	m_srvUavHeap = m_descriptorAllocator->GetHeap();
 
 	// Build acceleration structures
 	buildAccelerationStructures();
@@ -605,16 +612,24 @@ void App::buildAccelerationStructures() {
 	m_cmdAllocator->Reset();
 	m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
 
+	PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Acceleration Structures");
+
 	// Build BLAS for triangle (stub)
-	if (!m_asBuilder->CreateTriangleBLAS(m_blasResult, m_blasScratch)) {
-		LOGE("Failed to create triangle BLAS stub");
-		return;
+	{
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build BLAS");
+		if (!m_asBuilder->CreateTriangleBLAS(m_blasResult, m_blasScratch)) {
+			LOGE("Failed to create triangle BLAS stub");
+			return;
+		}
 	}
 
 	// Build TLAS (stub - no instances needed for stub)
-	if (!m_asBuilder->BuildTLAS(m_tlasResult, m_tlasScratch, m_instanceDescs)) {
-		LOGE("Failed to create TLAS stub");
-		return;
+	{
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build TLAS");
+		if (!m_asBuilder->BuildTLAS(m_tlasResult, m_tlasScratch, m_instanceDescs)) {
+			LOGE("Failed to create TLAS stub");
+			return;
+		}
 	}
 
 	// Execute and wait
@@ -698,11 +713,16 @@ void App::createDXRPipeline() {
 	m_dxrPipeline->SetGlobalRootSignature(m_globalRootSignature.Get());
 
 	// Create PSO
+	LOGI("PIX: PSO Create Start");
 	m_dxrPipeline->Create();
+	LOGI("PIX: PSO Create Complete");
 }
 
 void App::createShaderBindingTable() {
 	LOGI("Creating shader binding table...");
+
+	// Note: SBT creation doesn't use command list, so we log it instead of using PIX events
+	LOGI("PIX: SBT Build Start");
 
 	m_sbt = std::make_unique<SBT>(m_device.Get());
 
@@ -745,6 +765,7 @@ void App::createShaderBindingTable() {
 
 	// Build SBT
 	m_sbt->Build();
+	LOGI("PIX: SBT Build Complete");
 }
 
 void App::renderFrameDXR() {
@@ -753,49 +774,134 @@ void App::renderFrameDXR() {
     m_cmdAllocator->Reset();
 	m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
 
-	// Transition backbuffer to UAV
-	D3D12_RESOURCE_BARRIER toUAV{};
-	toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	toUAV.Transition.pResource = m_backbuffers[m_frameIndex].Get();
-	toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-	toUAV.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-	toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	m_cmdList->ResourceBarrier(1, &toUAV);
+	PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Frame");
 
-	// Set descriptor heaps
-	ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
-	m_cmdList->SetDescriptorHeaps(1, heaps);
+	// Check if we have HDR pipeline or fallback to direct backbuffer rendering
+	bool useHDRPipeline = (m_hdrTexture != nullptr && m_composite != nullptr);
 
-	// Set pipeline state
-	m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
-	m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+	if (useHDRPipeline) {
+		// HDR Pipeline: Render to HDR texture then composite to backbuffer
+		{
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR to HDR");
 
-	// Set resources (guard: ensure TLAS and backbuffer exist)
-	if (!m_tlasResult || !m_backbuffers[m_frameIndex]) {
-		LOGE("DXR render: missing TLAS or backbuffer; aborting DXR frame");
-		m_cmdList->Close();
-		return;
+			// Set descriptor heaps
+			ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+			m_cmdList->SetDescriptorHeaps(1, heaps);
+
+			// Set pipeline state
+			m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
+			m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+
+			// Set resources for HDR rendering
+			if (!m_tlasResult) {
+				LOGE("DXR render: missing TLAS; aborting DXR frame");
+				m_cmdList->Close();
+				return;
+			}
+			m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
+			m_cmdList->SetComputeRootUnorderedAccessView(1, m_hdrTexture->GetGPUVirtualAddress());
+
+			// Dispatch rays to HDR texture
+			if (!m_sbt) {
+				LOGE("DXR render: SBT is null; aborting DXR frame");
+				m_cmdList->Close();
+				return;
+			}
+			auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
+			m_cmdList->DispatchRays(&dispatchDesc);
+		}
+
+		// Barrier: HDR UAV -> SRV for composite read
+		{
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR UAV->SRV Barrier");
+			D3D12_RESOURCE_BARRIER hdrBarrier{};
+			hdrBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+			hdrBarrier.UAV.pResource = m_hdrTexture.Get();
+			m_cmdList->ResourceBarrier(1, &hdrBarrier);
+		}
+
+		// Transition backbuffer PRESENT -> RTV
+		{
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "Backbuffer PRESENT->RTV");
+			D3D12_RESOURCE_BARRIER toRTV{};
+			toRTV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			toRTV.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+			toRTV.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+			toRTV.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			toRTV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			m_cmdList->ResourceBarrier(1, &toRTV);
+		}
+
+		// HDR Composite Pass
+		{
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Composite");
+			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+			rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
+
+			D3D12_GPU_DESCRIPTOR_HANDLE hdrSrvHandle = m_descriptorAllocator->GetGPUHandle(m_hdrSrvIndex);
+
+			m_composite->Draw(m_cmdList.Get(), m_srvUavHeap.Get(), hdrSrvHandle, rtvHandle);
+		}
+
+		// Transition backbuffer RTV -> PRESENT
+		{
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "Backbuffer RTV->PRESENT");
+			D3D12_RESOURCE_BARRIER toPresent{};
+			toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			toPresent.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+			toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			toPresent.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+			toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			m_cmdList->ResourceBarrier(1, &toPresent);
+		}
+	} else {
+		// Fallback: Direct backbuffer rendering (legacy path)
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Direct to Backbuffer");
+
+		// Transition backbuffer PRESENT -> UAV
+		D3D12_RESOURCE_BARRIER toUAV{};
+		toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		toUAV.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+		toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+		toUAV.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+		toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		m_cmdList->ResourceBarrier(1, &toUAV);
+
+		// Set descriptor heaps
+		ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+		m_cmdList->SetDescriptorHeaps(1, heaps);
+
+		// Set pipeline state
+		m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
+		m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+
+		// Set resources (guard: ensure TLAS and backbuffer exist)
+		if (!m_tlasResult || !m_backbuffers[m_frameIndex]) {
+			LOGE("DXR render: missing TLAS or backbuffer; aborting DXR frame");
+			m_cmdList->Close();
+			return;
+		}
+		m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
+		m_cmdList->SetComputeRootUnorderedAccessView(1, m_backbuffers[m_frameIndex]->GetGPUVirtualAddress());
+
+		// Dispatch rays
+		if (!m_sbt) {
+			LOGE("DXR render: SBT is null; aborting DXR frame");
+			m_cmdList->Close();
+			return;
+		}
+		auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
+		m_cmdList->DispatchRays(&dispatchDesc);
+
+		// Transition backbuffer UAV -> PRESENT
+		D3D12_RESOURCE_BARRIER toPresent{};
+		toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		toPresent.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+		toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+		toPresent.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+		toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		m_cmdList->ResourceBarrier(1, &toPresent);
 	}
-	m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
-	m_cmdList->SetComputeRootUnorderedAccessView(1, m_backbuffers[m_frameIndex]->GetGPUVirtualAddress());
-
-	// Dispatch rays
-	if (!m_sbt) {
-		LOGE("DXR render: SBT is null; aborting DXR frame");
-		m_cmdList->Close();
-		return;
-	}
-	auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
-	m_cmdList->DispatchRays(&dispatchDesc);
-
-	// Transition backbuffer to present
-	D3D12_RESOURCE_BARRIER toPresent{};
-	toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	toPresent.Transition.pResource = m_backbuffers[m_frameIndex].Get();
-	toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-	toPresent.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
-	toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	m_cmdList->ResourceBarrier(1, &toPresent);
 
 	HRESULT hr = m_cmdList->Close();
 	if (FAILED(hr)) {
@@ -809,11 +915,15 @@ void App::renderFrameDXR() {
 	m_queue->ExecuteCommandLists(1, lists);
 	dumpInfoQueueMessages();
 
+	// Present (logging marker since Present doesn't use command lists)
+	LOGI("PIX: Present Start");
     hr = m_swapchain->Present(1, 0);
 	if (FAILED(hr)) {
 		LOGE("Present failed in renderFrameDXR: 0x" + std::to_string(static_cast<uint32_t>(hr)));
 		dumpInfoQueueMessages();
 		checkDeviceRemoved(hr);
+	} else {
+		LOGI("PIX: Present Complete");
 	}
     // Signal fence for this frame index and store value per backbuffer
     const UINT64 signalValue = ++m_fenceValue;
@@ -854,8 +964,25 @@ bool App::createHDRTexture() {
         return false;
     }
 
+    // Allocate descriptor indices via allocator (DXR_0021)
+    if (m_hdrSrvIndex == UINT_MAX) {
+        m_hdrSrvIndex = m_descriptorAllocator->Allocate();
+        if (m_hdrSrvIndex == UINT_MAX) {
+            LOGE("Failed to allocate SRV index for HDR texture");
+            return false;
+        }
+    }
+
+    if (m_hdrUavIndex == UINT_MAX) {
+        m_hdrUavIndex = m_descriptorAllocator->Allocate();
+        if (m_hdrUavIndex == UINT_MAX) {
+            LOGE("Failed to allocate UAV index for HDR texture");
+            return false;
+        }
+    }
+
     // Create SRV for HDR texture (for composite pass)
-    if (m_srvUavHeap) {
+    if (m_descriptorAllocator) {
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -865,8 +992,7 @@ bool App::createHDRTexture() {
         srvDesc.Texture2D.PlaneSlice = 0;
         srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-        D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
-        srvHandle.ptr += m_hdrSrvIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_descriptorAllocator->GetCPUHandle(m_hdrSrvIndex);
         m_device->CreateShaderResourceView(m_hdrTexture.Get(), &srvDesc, srvHandle);
 
         // Create UAV for HDR texture (for DXR output)
@@ -876,9 +1002,13 @@ bool App::createHDRTexture() {
         uavDesc.Texture2D.MipSlice = 0;
         uavDesc.Texture2D.PlaneSlice = 0;
 
-        D3D12_CPU_DESCRIPTOR_HANDLE uavHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
-        uavHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE uavHandle = m_descriptorAllocator->GetCPUHandle(m_hdrUavIndex);
         m_device->CreateUnorderedAccessView(m_hdrTexture.Get(), nullptr, &uavDesc, uavHandle);
+
+        char allocMsg[256];
+        std::snprintf(allocMsg, sizeof(allocMsg), "HDR texture descriptors allocated: SRV[%u] UAV[%u]",
+                      m_hdrSrvIndex, m_hdrUavIndex);
+        LOGI(allocMsg);
     }
 
     LOGI("HDR texture created (" + std::to_string(m_width) + "x" + std::to_string(m_height) + ")");
@@ -888,6 +1018,10 @@ bool App::createHDRTexture() {
 void App::recreateHDRTexture() {
     // Release old HDR texture
     m_hdrTexture.Reset();
+
+    // Note: We reuse the allocated descriptor indices (m_hdrSrvIndex and m_hdrUavIndex)
+    // This is safe since we're just updating the descriptors at the same locations
+    LOGI("Recreating HDR texture (reusing allocated descriptor indices)");
 
     // Recreate with new size
     createHDRTexture();
