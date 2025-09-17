@@ -1,0 +1,19 @@
+{
+  "id": "DXR_0013_unhandled_exception_and_stacktrace",
+  "title": "Add unhandled exception filter + stack trace for STATUS_ILLEGAL_INSTRUCTION",
+  "purpose": "Capture and log exception codes and a minimal stack trace to diagnose early startup crashes (0xC000001D).",
+  "steps": [
+    { "action": "seh_handler", "detail": "Install SetUnhandledExceptionFilter at App::initialize() entry. On exception, print code (hex) and walk stack via RtlCaptureStackBackTrace; resolve module names via GetModuleFileName." },
+    { "action": "guard_device", "detail": "Wrap createDevice()/CreateDXGIFactory2 with __try/__except or structured try/catch to log stage before crash." },
+    { "action": "console", "detail": "Ensure console attached before installing filter so logs are visible." }
+  ],
+  "acceptance": [
+    "On crash, console prints Unhandled exception: 0xC000001D and a few stack frames",
+    "We can identify if the faulting module is D3D12Core.dll or elsewhere"
+  ],
+  "touchpoints": [
+    "src/core/App.cpp"
+  ]
+}
+
+

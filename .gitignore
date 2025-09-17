@@ -1,0 +1,73 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+out/
+
+# Visual Studio files
+.vs/
+*.vcxproj.user
+*.vcxproj.filters.user
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code
+.vscode/
+
+# CLion
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# Compiled binaries
+*.exe
+*.dll
+*.lib
+*.pdb
+*.exp
+*.ilk
+*.idb
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~
+
+# PIX captures
+PIX/
+*.wpix
+*.vsglog
+
+# NuGet packages (keep the .nupkg files but not extracted content)
+agility_sdk_*/
+dxc_temp/
+
+# Shader compilation output (keep source, exclude compiled)
+*.dxil
+*.cso
+*.pso
+
+# Test files
+test_*.cpp
+test_*.bat
+test_*.ps1
+
+# Crash dumps
+*.dmp
+Crash_log*.txt
+
+# Keep these
+!tools/dxc.exe
+!bin/*.dll
+!lib/*.lib
+!shaders/**/*.hlsl

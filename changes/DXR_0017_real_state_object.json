@@ -1,0 +1,50 @@
+{
+  "id": "DXR_0017",
+  "title": "Create real DXR state object and PSO properties",
+  "owner": "GPT-5",
+  "motivation": "Pipeline::Create() is a stub that forces raster fallback. We need a real DXR state object so SBT can query valid shader identifiers and DispatchRays can run.",
+  "scope": {
+    "files": [
+      "src/dxr/Pipeline.h",
+      "src/dxr/Pipeline.cpp",
+      "src/core/App.cpp",
+      "shaders/dxr/raytracing_lib.hlsl"
+    ]
+  },
+  "deliverables": [
+    "A D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE with subobjects: DXIL library, hit group, shader config, global root signature, pipeline config",
+    "Query ID3D12StateObjectProperties and return non-null IDs for 'RayGen', 'Miss', 'HitGroup'",
+    "Remove raster fallback when PSO creation succeeds; keep graceful fallback on failure",
+    "PIX capture validates non-zero SBT identifiers and shows DispatchRays on GPU timeline"
+  ],
+  "acceptance": [
+    "App runs without 'PSO properties are null' warning",
+    "SBT::Build() completes; GetShaderIdentifier returns non-null for all exports",
+    "No D3D12 debug layer errors; warnings allowed",
+    "PIX 'Pipeline State Objects' shows a Raytracing PSO with our exports"
+  ],
+  "implementation": [
+    "In Pipeline::Create(): build an array of D3D12_STATE_SUBOBJECT",
+    "- DXIL library (raytracing_lib.dxil) with exports: RayGen, Miss, ClosestHit",
+    "- Hit group: type TRIANGLES; CHS=ClosestHit; Export 'HitGroup'",
+    "- Shader config: payload 32 bytes (float4 RGBA), attribute 8 bytes (float2 barycentrics)",
+    "- Global root signature: reuse existing minimal SRV(t0) + UAV(u0); keep simple for v1",
+    "- Pipeline config: MaxTraceRecursionDepth=1",
+    "Call ID3D12Device5::CreateStateObject and then QueryInterface for ID3D12StateObjectProperties",
+    "Cache m_pso and m_psoProps; expose getters"
+  ],
+  "notes": [
+    "Keep the root signature minimal; local roots not required in 0017",
+    "Do not change SBT layout yet; 0019 adds camera/local roots",
+    "If CreateStateObject fails, log HRESULT and keep current raster fallback path"
+  ],
+  "test_plan": [
+    "Run without PIX: animated gradient should appear; logs show PSO creation success",
+    "Run in PIX: verify DispatchRays event and that SBT sizes/strides look sane",
+    "Force failure by renaming dxil temporarily; ensure app falls back to raster gracefully"
+  ]
+}
+
+
+
+

@@ -1,0 +1,30 @@
+{
+  "id": "DXR_0000_core_debug_and_agility",
+  "title": "Enable debug console, D3D12 debug+info queue, DRED, DXC, and Agility SDK",
+  "purpose": "Diagnose white-window crash and modernize the toolchain for DXR by adding logs, device-removed diagnostics, DXC shader compilation, and optionally the DirectX 12 Agility SDK.",
+  "steps": [
+    { "action": "console", "detail": "Attach a debug console in Debug builds; redirect stdout/stderr; log startup and failures." },
+    { "action": "debug_layer", "detail": "Enable D3D12 debug layer + IDXGIInfoQueue breaks on error; log messages to console." },
+    { "action": "dred", "detail": "On DXGI_ERROR_DEVICE_REMOVED/HUNG from Execute/Present, query ID3D12DeviceRemovedExtendedData2 to dump breadcrumbs and page faults." },
+    { "action": "present_checks", "detail": "Check HRESULTs for ExecuteCommandLists and Present; if failed, print GetDeviceRemovedReason and DRED outputs, then exit gracefully." },
+    { "action": "dxc_integration", "detail": "Add DXC to toolchain (NuGet or local): compile DXR shaders with dxc.exe (/T lib_6_3, /Zi in Debug)." },
+    { "action": "agility_sdk", "detail": "Optional: integrate Agility SDK 1.616.x: export D3D12SDKVersion=616 and D3D12SDKPath='\\\\D3D12\\\\'; deploy SDK DLLs to that folder next to the EXE." },
+    { "action": "pix_events", "detail": "Add PIX events around swapchain present, AS/SBT build, DispatchRays; confirm capture works." }
+  ],
+  "acceptance": [
+    "Console shows initialization and per-frame logs",
+    "On crash, DRED breadcrumbs and page fault summaries are printed",
+    "DXC compiles a test lib_6_3 shader; DXR path gated if DXC unavailable",
+    "Agility SDK loads (optional), confirmed by D3D12 SDK version log"
+  ],
+  "touchpoints": [
+    "src/core/App.*",
+    "CMakeLists.txt"
+  ],
+  "references": [
+    "DirectX 12 Agility SDK – downloads and getting started: https://devblogs.microsoft.com/directx/directx12agility/",
+    "DirectXShaderCompiler (DXC): https://github.com/microsoft/DirectXShaderCompiler",
+    "DRED overview: https://learn.microsoft.com/en-us/windows/win32/direct3d12/d3d12-device-removed-extended-data",
+    "PIX for Windows docs: https://devblogs.microsoft.com/pix/documentation/"
+  ]
+}

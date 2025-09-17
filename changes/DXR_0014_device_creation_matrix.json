@@ -1,0 +1,21 @@
+{
+  "id": "DXR_0014_device_creation_matrix",
+  "title": "Device-creation matrix (Agility vs OS, debug layer, Options5) with logging",
+  "purpose": "Systematically identify which combination triggers STATUS_ILLEGAL_INSTRUCTION during device creation.",
+  "steps": [
+    { "action": "toggle_agility", "detail": "Add a build-time and env toggle to disable Agility and use OS D3D12Core; log selection." },
+    { "action": "toggle_debug", "detail": "Add command-line arg or env to disable/enable D3D12 debug layer and DXGI factory debug; log state." },
+    { "action": "feature_query_guard", "detail": "Wrap CheckFeatureSupport(Options5) with try/catch + HRESULT checks; log results only if device was created." },
+    { "action": "result_matrix", "detail": "Print one-line summary row for each run: {agility=[on|off], debug=[on|off], tier=[value]|fail, result=[ok|crash|hr]}" }
+  ],
+  "acceptance": [
+    "We can run 2-3 permutations and see whether illegal instruction correlates with Agility on/off or debug on/off",
+    "A clear console log row shows the device creation path and outcome"
+  ],
+  "touchpoints": [
+    "src/core/App.cpp",
+    "README.md"
+  ]
+}
+
+

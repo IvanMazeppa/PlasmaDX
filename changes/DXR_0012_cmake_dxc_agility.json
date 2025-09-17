@@ -1,0 +1,28 @@
+{
+  "id": "DXR_0012_cmake_dxc_agility",
+  "title": "Integrate DXC in CMake and optionally enable DirectX 12 Agility SDK",
+  "purpose": "Ensure DXR shaders compile with dxc.exe and allow opt-in to latest DX12 features via Agility SDK.",
+  "steps": [
+    { "action": "find_dxc", "detail": "Add CMake logic to locate dxc.exe (VS, WinSDK, or environment). If unavailable, gate off DXR features." },
+    { "action": "shader_build", "detail": "Compile shaders/dxr/*.hlsl to .dxil using DXC: /T lib_6_3 /Zi (Debug) /Qstrip_debug (Release)." },
+    { "action": "agility_env", "detail": "Document and optionally set D3D12SDKVersion=616 (or 717 preview) and D3D12SDKPath='D3D12\\' for local runs. Copy D3D12Core.dll and d3d12SDKLayers.dll to that folder next to the exe." },
+    { "action": "log_version", "detail": "At startup, log detected D3D12SDKVersion via D3D12GetInterface or environment to confirm Agility loading." }
+  ],
+  "acceptance": [
+    "DXC compiles DXR shader libs into .dxil artifacts",
+    "App logs Agility SDK version when enabled",
+    "DXR path gracefully disabled when DXC unavailable"
+  ],
+  "touchpoints": [
+    "CMakeLists.txt",
+    "src/core/App.*",
+    "shaders/dxr/*"
+  ],
+  "references": [
+    "Agility SDK getting started: https://devblogs.microsoft.com/directx/directx12agility/",
+    "DirectXShaderCompiler: https://github.com/microsoft/DirectXShaderCompiler",
+    "DirectX Graphics Samples DXR build: https://learn.microsoft.com/en-us/samples/microsoft/directx-graphics-samples/d3d12-raytracing-samples-win32/"
+  ]
+}
+
+

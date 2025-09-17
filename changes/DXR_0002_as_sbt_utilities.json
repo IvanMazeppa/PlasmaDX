@@ -1,0 +1,29 @@
+{
+  "id": "DXR_0002_as_sbt_utilities",
+  "title": "Implement BLAS/TLAS and SBT utilities with camera CBV integration",
+  "purpose": "Factor reusable builders for AS and SBT, wire a camera constant buffer, and validate per-frame updates.",
+  "steps": [
+    { "action": "blas_builder", "detail": "Create BLAS builder for triangle geometry; compute scratch/AS buffer sizes; allocate and build." },
+    { "action": "tlas_builder", "detail": "Create TLAS builder for instance array; support transforms, instance masks, build flags." },
+    { "action": "sbt_builder", "detail": "Create SBT builder that packs shader identifiers + root arguments into raygen/miss/hit sections with correct strides/alignments." },
+    { "action": "camera_cb", "detail": "Add camera constant buffer; update per-frame; bind via global RS; pass to raygen." },
+    { "action": "pix_events", "detail": "Instrument AS/SBT build and camera update with PIX events." }
+  ],
+  "acceptance": [
+    "Camera motion visibly changes output",
+    "AS rebuild works without leaks; scratch sized correctly",
+    "SBT sizes and strides logged; PIX shows expected layout"
+  ],
+  "touchpoints": [
+    "src/dxr/ASBuilder.*",
+    "src/dxr/SBT.*",
+    "src/dxr/Pipeline.*",
+    "src/core/App.*",
+    "shaders/dxr/*"
+  ],
+  "references": [
+    "DirectX Graphics Samples – D3D12RaytracingSimpleLighting",
+    "Microsoft Learn – DXR state objects and SBT",
+    "DirectX-Headers – alignment constants"
+  ]
+}
