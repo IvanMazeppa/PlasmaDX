@@ -12,8 +12,6 @@ add_executable(PlasmaDX WIN32
     src/main.cpp
     src/core/App.cpp
     src/core/App.h
-    src/core/Camera.cpp
-    src/core/Camera.h
     src/core/D3D12AgilitySDK.cpp
     src/dxr/ASBuilder.cpp
     src/dxr/ASBuilder.h
@@ -21,8 +19,6 @@ add_executable(PlasmaDX WIN32
     src/dxr/Pipeline.h
     src/dxr/SBT.cpp
     src/dxr/SBT.h
-    src/renderer/Composite.cpp
-    src/renderer/Composite.h
     src/utils/FileLoader.cpp
     src/utils/FileLoader.h
     src/utils/Logger.h

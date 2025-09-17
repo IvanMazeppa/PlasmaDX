@@ -12,8 +12,6 @@ class Renderer;
 class ASBuilder;
 class Pipeline;
 class SBT;
-class Composite;
-class Camera;
 
 class App {
 public:
@@ -22,11 +20,6 @@ public:
 
 	bool initialize(HINSTANCE hInstance, int nCmdShow);
 	int run();
-
-	// Input handling (DXR_0019)
-	void onKeyDown(UINT8 key);
-	void onKeyUp(UINT8 key);
-	void onMouseMove(int deltaX, int deltaY);
 
 private:
 	bool createWindow(HINSTANCE hInstance, int nCmdShow);
@@ -91,15 +84,6 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvUavHeap;
 	Microsoft::WRL::ComPtr<ID3DBlob> m_dxrShaderBlob;
 
-	// HDR output resources (DXR_0018)
-	std::unique_ptr<Composite> m_composite;
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_hdrTexture;
-	UINT m_hdrSrvIndex = 0;  // Index in SRV/UAV heap
-	UINT m_hdrUavIndex = 1;  // Index in SRV/UAV heap
-
-	// Camera system (DXR_0019)
-	std::unique_ptr<Camera> m_camera;
-
 	// Debug/diagnostics interfaces
 	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_d3d12InfoQueue;
 	Microsoft::WRL::ComPtr<IDXGIInfoQueue> m_dxgiInfoQueue;
@@ -113,8 +97,4 @@ private:
 	void buildAccelerationStructures();
 	void createShaderBindingTable();
 	void renderFrameDXR();
-
-	// HDR output methods (DXR_0018)
-	bool createHDRTexture();
-	void recreateHDRTexture();
 };

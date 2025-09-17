@@ -21,14 +21,4 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Device5> m_device;
 	Microsoft::WRL::ComPtr<ID3D12StateObject> m_pso;
 	Microsoft::WRL::ComPtr<ID3D12StateObjectProperties> m_psoProps;
-
-	// Configuration data for state object creation
-	std::vector<uint8_t> m_dxilData;
-	std::vector<std::wstring> m_exports;
-	std::wstring m_hitGroupName;
-	std::wstring m_closestHitShader;
-	UINT m_payloadSize = 32;
-	UINT m_attributeSize = 8;
-	UINT m_maxRecursionDepth = 1;
-	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_globalRootSig;
 };

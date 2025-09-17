@@ -1,0 +1,4 @@
+DXR_0017 Pre-Implementation Backup - Working stub pipeline with raster fallback
+Status: Device creation successful, DXR Tier 1.1 detected, shader loading works
+Next: Implement real DXR state object to replace stub and enable raytracing
+Date: Wed Sep 17 07:05:46 BST 2025

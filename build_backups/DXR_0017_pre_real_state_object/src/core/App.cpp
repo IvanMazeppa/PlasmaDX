@@ -1,10 +1,8 @@
 #include "App.h"
-#include "Camera.h"
 #include "../utils/Logger.h"
 #include "../dxr/ASBuilder.h"
 #include "../dxr/Pipeline.h"
 #include "../dxr/SBT.h"
-#include "../renderer/Composite.h"
 #include "../utils/FileLoader.h"
 #include <d3dcompiler.h>
 #include <fstream>
@@ -798,80 +796,4 @@ void App::renderFrameDXR() {
     m_queue->Signal(m_fence.Get(), signalValue);
     m_frameFenceValues[m_frameIndex] = signalValue;
     m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
-}
-
-bool App::createHDRTexture() {
-    // Create HDR texture (R16G16B16A16_FLOAT) for DXR output
-    D3D12_RESOURCE_DESC texDesc = {};
-    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    texDesc.Width = m_width;
-    texDesc.Height = m_height;
-    texDesc.DepthOrArraySize = 1;
-    texDesc.MipLevels = 1;
-    texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    texDesc.SampleDesc.Count = 1;
-    texDesc.SampleDesc.Quality = 0;
-    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    D3D12_CLEAR_VALUE clearValue = {};
-    clearValue.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    clearValue.Color[0] = 0.0f;
-    clearValue.Color[1] = 0.0f;
-    clearValue.Color[2] = 0.0f;
-    clearValue.Color[3] = 1.0f;
-
-    HRESULT hr = m_device->CreateCommittedResource(
-        &heapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &texDesc,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        &clearValue,
-        IID_PPV_ARGS(&m_hdrTexture));
-
-    if (FAILED(hr)) {
-        LOGE("Failed to create HDR texture");
-        return false;
-    }
-
-    // Create SRV for HDR texture (for composite pass)
-    if (m_srvUavHeap) {
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Texture2D.MipLevels = 1;
-        srvDesc.Texture2D.MostDetailedMip = 0;
-        srvDesc.Texture2D.PlaneSlice = 0;
-        srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
-        srvHandle.ptr += m_hdrSrvIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_device->CreateShaderResourceView(m_hdrTexture.Get(), &srvDesc, srvHandle);
-
-        // Create UAV for HDR texture (for DXR output)
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-        uavDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        uavDesc.Texture2D.MipSlice = 0;
-        uavDesc.Texture2D.PlaneSlice = 0;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE uavHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
-        uavHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        m_device->CreateUnorderedAccessView(m_hdrTexture.Get(), nullptr, &uavDesc, uavHandle);
-    }
-
-    LOGI("HDR texture created (" + std::to_string(m_width) + "x" + std::to_string(m_height) + ")");
-    return true;
-}
-
-void App::recreateHDRTexture() {
-    // Release old HDR texture
-    m_hdrTexture.Reset();
-
-    // Recreate with new size
-    createHDRTexture();
 }
