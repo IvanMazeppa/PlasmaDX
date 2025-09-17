@@ -160,15 +160,27 @@ int App::run() {
 }
 
 void App::attachDebugConsole() {
-	// Always allocate console for debug output in this test version
-	AllocConsole();
-	FILE* pCout;
-	freopen_s(&pCout, "CONOUT$", "w", stdout);
-	FILE* pCerr;
-	freopen_s(&pCerr, "CONOUT$", "w", stderr);
-	std::cout.clear();
-	std::cerr.clear();
-	LOGI("Debug console allocated");
+	// Try to attach to existing console first (launched from terminal)
+	if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+		// Redirect stdout/stderr to existing console
+		FILE* pCout;
+		freopen_s(&pCout, "CONOUT$", "w", stdout);
+		FILE* pCerr;
+		freopen_s(&pCerr, "CONOUT$", "w", stderr);
+		std::cout.clear();
+		std::cerr.clear();
+		LOGI("Debug console attached to parent process");
+	} else {
+		// Fall back to allocating new console if launched standalone
+		AllocConsole();
+		FILE* pCout;
+		freopen_s(&pCout, "CONOUT$", "w", stdout);
+		FILE* pCerr;
+		freopen_s(&pCerr, "CONOUT$", "w", stderr);
+		std::cout.clear();
+		std::cerr.clear();
+		LOGI("Debug console allocated");
+	}
 }
 
 bool App::createWindow(HINSTANCE hInstance, int nCmdShow) {
@@ -572,7 +584,17 @@ bool App::initializeDXR() {
 	// Create shader binding table
 	createShaderBindingTable();
 
-	LOGI("DXR initialized successfully");
+	// Initialize Camera and Composite (DXR_0018 & 0019)
+	m_camera = std::make_unique<Camera>();
+	m_camera->Initialize(float(m_width) / float(m_height));
+	m_camera->CreateConstantBuffer(m_device.Get());
+
+	m_composite = std::make_unique<Composite>(m_device.Get());
+	m_composite->Initialize();
+
+	createHDRTexture();
+
+	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
 }
 
@@ -833,7 +855,9 @@ bool App::createHDRTexture() {
         IID_PPV_ARGS(&m_hdrTexture));
 
     if (FAILED(hr)) {
-        LOGE("Failed to create HDR texture");
+        char errorMsg[256];
+        std::snprintf(errorMsg, sizeof(errorMsg), "Failed to create HDR texture: 0x%08X", (uint32_t)hr);
+        LOGE(errorMsg);
         return false;
     }
 

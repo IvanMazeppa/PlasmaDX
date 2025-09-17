@@ -67,6 +67,14 @@ void Pipeline::Create() {
 			return;
 		}
 
+		LOGI("Pipeline::Create - DXIL data size: " + std::to_string(m_dxilData.size()) + " bytes");
+		LOGI("Pipeline::Create - exports count: " + std::to_string(m_exports.size()));
+		for (size_t i = 0; i < m_exports.size(); i++) {
+			std::wstring ws = m_exports[i];
+			std::string exportName(ws.begin(), ws.end());
+			LOGI("Pipeline::Create - export[" + std::to_string(i) + "]: " + exportName);
+		}
+
 		// Build subobjects array
 		std::vector<D3D12_STATE_SUBOBJECT> subobjects;
 
@@ -111,6 +119,24 @@ void Pipeline::Create() {
 		subobjects.back().Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
 		subobjects.back().pDesc = &shaderConfig;
 
+		// 3a. Shader Config Association (associate all shaders with shader config)
+		std::vector<LPCWSTR> shaderConfigExports;
+		for (const auto& exportName : m_exports) {
+			shaderConfigExports.push_back(exportName.c_str());
+		}
+		if (!m_hitGroupName.empty()) {
+			shaderConfigExports.push_back(m_hitGroupName.c_str());
+		}
+
+		D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shaderConfigAssoc = {};
+		shaderConfigAssoc.pSubobjectToAssociate = &subobjects.back(); // Points to shader config subobject
+		shaderConfigAssoc.NumExports = static_cast<UINT>(shaderConfigExports.size());
+		shaderConfigAssoc.pExports = shaderConfigExports.data();
+
+		subobjects.push_back({});
+		subobjects.back().Type = D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+		subobjects.back().pDesc = &shaderConfigAssoc;
+
 		// 4. Pipeline Config subobject
 		D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig = {};
 		pipelineConfig.MaxTraceRecursionDepth = m_maxRecursionDepth;
@@ -120,9 +146,10 @@ void Pipeline::Create() {
 		subobjects.back().pDesc = &pipelineConfig;
 
 		// 5. Global Root Signature subobject
+		ID3D12RootSignature* pGlobalRootSig = m_globalRootSig.Get();
 		subobjects.push_back({});
 		subobjects.back().Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
-		subobjects.back().pDesc = m_globalRootSig.GetAddressOf();
+		subobjects.back().pDesc = &pGlobalRootSig;
 
 		// Create the state object
 		D3D12_STATE_OBJECT_DESC stateObjectDesc = {};
