@@ -42,6 +42,7 @@ class SBT;
 class Composite;
 class Camera;
 class DescriptorHeap;
+class Particles;
 
 class App {
 public:
@@ -130,6 +131,9 @@ private:
 
 	// Camera system (DXR_0019)
 	std::unique_ptr<Camera> m_camera;
+
+	// Particle system (VOL_0001)
+	std::unique_ptr<Particles> m_particles;
 
 	// Debug/diagnostics interfaces
 	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_d3d12InfoQueue;

@@ -30,6 +30,8 @@ add_executable(PlasmaDX WIN32
     src/utils/Env.cpp
     src/utils/Env.h
     src/utils/Logger.h
+    src/volumetric/Particles.cpp
+    src/volumetric/Particles.h
 )
 
 # Unicode build
@@ -98,8 +100,28 @@ add_custom_command(
     COMMENT "Compiling DXR shaders with DXC"
 )
 
+# Compile volumetric compute shaders with DXC (VOL_0001)
+set(VOL_UPDATE_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/vol/particles_update.hlsl")
+set(VOL_UPDATE_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/vol/particles_update.dxil")
+set(VOL_DEBUG_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/vol/particles_debug_pattern.hlsl")
+set(VOL_DEBUG_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/vol/particles_debug_pattern.dxil")
+
+add_custom_command(
+    OUTPUT ${VOL_UPDATE_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${VOL_UPDATE_SHADER_OUTPUT} ${VOL_UPDATE_SHADER_SOURCE}
+    DEPENDS ${VOL_UPDATE_SHADER_SOURCE}
+    COMMENT "Compiling particles update compute shader"
+)
+
+add_custom_command(
+    OUTPUT ${VOL_DEBUG_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${VOL_DEBUG_SHADER_OUTPUT} ${VOL_DEBUG_SHADER_SOURCE}
+    DEPENDS ${VOL_DEBUG_SHADER_SOURCE}
+    COMMENT "Compiling particles debug pattern compute shader"
+)
+
 # Add shader compilation as dependency
-add_custom_target(compile_shaders DEPENDS ${DXR_SHADER_OUTPUT})
+add_custom_target(compile_shaders DEPENDS ${DXR_SHADER_OUTPUT} ${VOL_UPDATE_SHADER_OUTPUT} ${VOL_DEBUG_SHADER_OUTPUT})
 add_dependencies(PlasmaDX compile_shaders)
 
 # Copy shaders to output directory

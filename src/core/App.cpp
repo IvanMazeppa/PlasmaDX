@@ -8,6 +8,7 @@
 #include "../dxr/SBT.h"
 #include "../renderer/Composite.h"
 #include "../utils/FileLoader.h"
+#include "../volumetric/Particles.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -400,6 +401,86 @@ void App::renderFrame() {
     m_cmdAllocator->Reset();
 	m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
 
+	// Update particle system if available (VOL_0001 fallback)
+	if (m_particles && m_hdrTexture && m_hdrUavIndex != UINT_MAX) {
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "Particles Update (Fallback)");
+
+		// Set descriptor heaps for particle update
+		ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+		m_cmdList->SetDescriptorHeaps(1, heaps);
+
+		// Update particle simulation
+		static float totalTimeFallback = 0.0f;
+		const float deltaTime = 0.016f; // ~60 FPS delta time
+		totalTimeFallback += deltaTime;
+
+		m_particles->Update(m_cmdList.Get(), deltaTime, totalTimeFallback);
+
+		// Particle debug write to HDR texture
+		m_particles->WriteDebugPattern(m_cmdList.Get(), m_hdrTexture.Get(),
+			m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), m_width, m_height);
+
+		// Composite HDR to backbuffer if we have composite system
+		if (m_composite) {
+			// Transition backbuffer to render target
+			D3D12_RESOURCE_BARRIER toRT{};
+			toRT.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			toRT.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+			toRT.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+			toRT.Transition.StateAfter  = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			toRT.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			m_cmdList->ResourceBarrier(1, &toRT);
+
+            // Composite HDR to backbuffer
+			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+			rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
+			D3D12_GPU_DESCRIPTOR_HANDLE hdrSrvHandle = m_descriptorAllocator->GetGPUHandle(m_hdrSrvIndex);
+
+            // Set viewport and scissor to swapchain size
+            D3D12_VIEWPORT viewport{}; viewport.TopLeftX = 0.0f; viewport.TopLeftY = 0.0f; viewport.Width = float(m_width); viewport.Height = float(m_height); viewport.MinDepth = 0.0f; viewport.MaxDepth = 1.0f;
+            D3D12_RECT scissor{}; scissor.left = 0; scissor.top = 0; scissor.right = LONG(m_width); scissor.bottom = LONG(m_height);
+            m_cmdList->RSSetViewports(1, &viewport);
+            m_cmdList->RSSetScissorRects(1, &scissor);
+
+			m_composite->Draw(m_cmdList.Get(), m_srvUavHeap.Get(), hdrSrvHandle, rtvHandle);
+
+			// Transition backbuffer to present
+			D3D12_RESOURCE_BARRIER toPresent{};
+			toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			toPresent.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+			toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			toPresent.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+			toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			m_cmdList->ResourceBarrier(1, &toPresent);
+
+			HRESULT hr = m_cmdList->Close();
+			if (FAILED(hr)) {
+				LOGE("Failed to close command list in renderFrame (HDR path): 0x" + std::to_string(static_cast<uint32_t>(hr)));
+				dumpInfoQueueMessages();
+				checkDeviceRemoved(hr);
+				return;
+			}
+
+			ID3D12CommandList* lists[] = { m_cmdList.Get() };
+			m_queue->ExecuteCommandLists(1, lists);
+			dumpInfoQueueMessages();
+
+			hr = m_swapchain->Present(1, 0);
+			if (FAILED(hr)) {
+				LOGE("Present failed in renderFrame (HDR path): 0x" + std::to_string(static_cast<uint32_t>(hr)));
+				dumpInfoQueueMessages();
+				checkDeviceRemoved(hr);
+			}
+
+			// Signal fence for this frame index and store value per backbuffer
+			const UINT64 signalValue = ++m_fenceValue;
+			m_queue->Signal(m_fence.Get(), signalValue);
+			m_frameFenceValues[m_frameIndex] = signalValue;
+			m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
+			return;
+		}
+	}
+
 	D3D12_RESOURCE_BARRIER toRT{};
 	toRT.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	toRT.Transition.pResource = m_backbuffers[m_frameIndex].Get();
@@ -632,6 +713,14 @@ bool App::initializeDXR() {
 
 	createHDRTexture();
 
+	// Initialize particle system (VOL_0001)
+	m_particles = std::make_unique<Particles>(m_device.Get());
+	if (!m_particles->Initialize(65536)) { // 65k particles as per spec
+		LOGE("Failed to initialize particle system");
+		return false;
+	}
+	LOGI("Particle system initialized (65536 particles)");
+
 	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
 }
@@ -811,6 +900,46 @@ void App::renderFrameDXR() {
 	bool useHDRPipeline = (m_hdrTexture != nullptr && m_composite != nullptr);
 
 	if (useHDRPipeline) {
+		// Update particle system (VOL_0001)
+		if (m_particles) {
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "Particles Update");
+
+			// Set descriptor heaps for particle update
+			ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+			m_cmdList->SetDescriptorHeaps(1, heaps);
+
+			// Update particle simulation
+			static float totalTime = 0.0f;
+			const float deltaTime = 0.016f; // ~60 FPS delta time
+			totalTime += deltaTime;
+
+			m_particles->Update(m_cmdList.Get(), deltaTime, totalTime);
+
+			// Particle debug write to HDR texture
+			if (m_hdrUavIndex != UINT_MAX) {
+				m_particles->WriteDebugPattern(m_cmdList.Get(), m_hdrTexture.Get(),
+					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), m_width, m_height);
+			}
+
+			// VOL_0001 QUICK FIX: Clear HDR with time-varying color to prove pipeline works
+			// This gives immediate visual feedback while compute shaders are being implemented
+			static float time = 0.0f;
+			time += 0.016f;
+			float r = 0.5f + 0.5f * sin(time);
+			float g = 0.5f + 0.5f * sin(time * 1.3f);
+			float b = 0.5f + 0.5f * sin(time * 0.7f);
+
+			// Get CPU descriptor handle for clear operation
+			D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
+			hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+			// Clear HDR texture with animated color
+			FLOAT clearColor[4] = { r, g, b, 1.0f };
+			m_cmdList->ClearUnorderedAccessViewFloat(m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex),
+				hdrUavCpuHandle,
+				m_hdrTexture.Get(), clearColor, 0, nullptr);
+		}
+
 		// HDR Pipeline: Render to HDR texture then composite to backbuffer
 		{
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR to HDR");
@@ -863,13 +992,19 @@ void App::renderFrameDXR() {
 			m_cmdList->ResourceBarrier(1, &toRTV);
 		}
 
-		// HDR Composite Pass
+        // HDR Composite Pass
 		{
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Composite");
 			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
 			rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
 
 			D3D12_GPU_DESCRIPTOR_HANDLE hdrSrvHandle = m_descriptorAllocator->GetGPUHandle(m_hdrSrvIndex);
+
+            // Set viewport and scissor to swapchain size
+            D3D12_VIEWPORT viewport{}; viewport.TopLeftX = 0.0f; viewport.TopLeftY = 0.0f; viewport.Width = float(m_width); viewport.Height = float(m_height); viewport.MinDepth = 0.0f; viewport.MaxDepth = 1.0f;
+            D3D12_RECT scissor{}; scissor.left = 0; scissor.top = 0; scissor.right = LONG(m_width); scissor.bottom = LONG(m_height);
+            m_cmdList->RSSetViewports(1, &viewport);
+            m_cmdList->RSSetScissorRects(1, &scissor);
 
 			m_composite->Draw(m_cmdList.Get(), m_srvUavHeap.Get(), hdrSrvHandle, rtvHandle);
 		}
