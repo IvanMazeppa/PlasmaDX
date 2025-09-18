@@ -1,0 +1,37 @@
+{
+  "id": "APP_0003",
+  "title": "Guard DXR dispatch; clear HDR UAV each frame as visual fallback",
+  "owner": "GPT-5",
+  "motivation": "Frames are black because no GPU writes reach the HDR texture: DXR PSO creation fails and the VOL_0001 compute path does not dispatch. Provide a deterministic on-GPU write so Composite can show content while DXR and compute are brought up.",
+  "scope": {
+    "files": [
+      "src/core/App.cpp",
+      "src/core/App.h"
+    ]
+  },
+  "deliverables": [
+    "Skip the DXR-to-HDR block when PSO/SBT/TLAS are invalid",
+    "ClearUnorderedAccessViewFloat on m_hdrTexture each frame with time-varying color",
+    "Ensure descriptor heap is set before ClearUAV",
+    "Composite pass shows gradient; PIX shows ClearUAV and a fullscreen draw"
+  ],
+  "acceptance": [
+    "App shows animated color without PIX, no crash",
+    "PIX capture contains ClearUnorderedAccessViewFloat on HDR and a Composite draw",
+    "No InfoQueue errors during the fallback path"
+  ],
+  "implementation": [
+    "In renderFrameDXR(): compute a simple RGB color from a running time value",
+    "Call SetDescriptorHeaps(1, &m_srvUavHeap) before Clear",
+    "Obtain HDR UAV GPU/CPU handles from descriptor allocator and call ClearUnorderedAccessViewFloat",
+    "Guard SetPipelineState1/DispatchRays behind a validity check: PSO != nullptr and SBT/TLAS present",
+    "Perform a proper transition for HDR before Composite (handled in DXR_0024)"
+  ],
+  "test_plan": [
+    "Run Debug build without PIX: animated gradient visible",
+    "Run in PIX: verify ClearUAV on HDR, then barrier and Composite draw",
+    "Temporarily disable the clear to confirm black returns, then re-enable"
+  ]
+}
+
+

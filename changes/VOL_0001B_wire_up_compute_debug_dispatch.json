@@ -1,0 +1,43 @@
+{
+  "id": "VOL_0001B",
+  "title": "Wire up compute debug dispatch to write HDR (particles_debug_pattern.hlsl)",
+  "owner": "GPT-5",
+  "motivation": "The debug pattern HLSL exists and compiles to DXIL, but the runtime never dispatches it. Implement a minimal compute pipeline to execute the shader and write HDR, proving compute path and descriptor plumbing.",
+  "scope": {
+    "files": [
+      "src/volumetric/Particles.h",
+      "src/volumetric/Particles.cpp",
+      "CMakeLists.txt"
+    ]
+  },
+  "deliverables": [
+    "Create m_debugPipelineState from particles_debug_pattern.dxil",
+    "Create a small descriptor heap or use root descriptors consistent with the shader",
+    "SetComputeRootSignature(m_debugRootSignature) and bind CBV(b0), SRV(t0)=particles, UAV(u0)=HDR",
+    "Dispatch ceil(width/8) x ceil(height/8) x 1",
+    "Add UAV barrier for HDR before Composite",
+    "Animated color pattern appears (plus simple particle influence)"
+  ],
+  "acceptance": [
+    "Visible pattern when DXR is disabled or failing",
+    "PIX shows a compute Dispatch with the debug shader and UAV writes to HDR",
+    "No InfoQueue errors about incompatible root parameter types"
+  ],
+  "implementation": [
+    "Load the compiled DXIL blob with FileLoader into a blob",
+    "Use CreateComputePipelineState with CS bytecode to create m_debugPipelineState",
+    "In Particles::WriteDebugPattern(), replace TODO with: bind root sig, set PSO, bind CBV/ SRV/ UAV, dispatch",
+    "In App, ensure particles buffer has SRV created if shader expects SRV(t0), or adjust shader/registers to match runtime bindings"
+  ],
+  "notes": [
+    "Keep it minimal: no descriptor tables are required if root SRV/UAV are used",
+    "If using descriptor tables, ensure a shader-visible heap is set on the command list"
+  ],
+  "test_plan": [
+    "Run Debug build; observe non-black output",
+    "In PIX, verify Dispatch threadgroup counts and UAV writes",
+    "Toggle to a flat color to validate end-to-end control"
+  ]
+}
+
+

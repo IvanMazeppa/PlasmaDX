@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../Agility_SDI_DXR_MCP"
 		}
 	],
 	"settings": {

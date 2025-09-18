@@ -1,0 +1,35 @@
+{
+  "id": "APP_0004",
+  "title": "Unify command list lifecycle and fence flow; remove early-return resets",
+  "owner": "GPT-5",
+  "motivation": "Logs show: 'ExecuteCommandList: allocator was reset after the command list was recorded' and subsequent device removal. In renderFrameDXR(), there are early-return paths that Close() without Execute, then next frame Reset()s the allocator. This violates D3D12 rules and triggers removal.",
+  "scope": {
+    "files": [
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "Render paths (DXR or fallback) do not early-return after Reset; all paths funnel to a single Close→Execute→Present→Signal block",
+    "If DXR prerequisites (PSO/SBT/TLAS) are missing, skip DXR work but continue to Composite path",
+    "No command list is left recorded-but-unexecuted when allocator is Reset next frame",
+    "Add guards so SetPipelineState1/DispatchRays are only called when PSO != nullptr"
+  ],
+  "acceptance": [
+    "Debug layer no longer reports allocator reset or 'command list must be closed' errors",
+    "No device removal in first minute of execution",
+    "PIX shows exactly one Close and Execute per frame"
+  ],
+  "implementation": [
+    "Refactor renderFrameDXR() into phases: BeginFrame (wait/reset), OptionalUpdate (particles), OptionalDXR (guarded), Composite, EndFrame (close/execute/present/signal)",
+    "Replace early return 'Close(); return;' sites with booleans to skip DXR and continue",
+    "On any error, flush info queue, still close/execute an empty list (optionally just close and execute a no-op) to keep allocator lifecycle consistent",
+    "Verify waitForFrame()/signal uses per-backbuffer fence values correctly"
+  ],
+  "test_plan": [
+    "Run Debug; ensure no allocator reset messages",
+    "Use PIX to inspect per-frame command list Close/Execute counts",
+    "Intentionally force DXR PSO failure; app should still render fallback without device removal"
+  ]
+}
+
+

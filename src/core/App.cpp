@@ -921,54 +921,61 @@ void App::renderFrameDXR() {
 					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), m_width, m_height);
 			}
 
-			// VOL_0001 QUICK FIX: Clear HDR with time-varying color to prove pipeline works
-			// This gives immediate visual feedback while compute shaders are being implemented
-			static float time = 0.0f;
-			time += 0.016f;
-			float r = 0.5f + 0.5f * sin(time);
-			float g = 0.5f + 0.5f * sin(time * 1.3f);
-			float b = 0.5f + 0.5f * sin(time * 0.7f);
-
-			// Get CPU descriptor handle for clear operation
-			D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
-			hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-
-			// Clear HDR texture with animated color
-			FLOAT clearColor[4] = { r, g, b, 1.0f };
-			m_cmdList->ClearUnorderedAccessViewFloat(m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex),
-				hdrUavCpuHandle,
-				m_hdrTexture.Get(), clearColor, 0, nullptr);
+			// VOL_0001: Particle debug pattern is calculated (in WriteDebugPattern)
+			// The HDR texture should contain some content from DXR or compute operations
+			// With GPT-5's viewport/scissor fix, this should now be visible
 		}
 
 		// HDR Pipeline: Render to HDR texture then composite to backbuffer
 		{
-			PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR to HDR");
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Content Generation");
 
 			// Set descriptor heaps
 			ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
 			m_cmdList->SetDescriptorHeaps(1, heaps);
 
-			// Set pipeline state
-			m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
-			m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+			// APP_0003: Guard DXR dispatch behind validity checks
+			bool canDoDXR = (m_dxrPipeline && m_dxrPipeline->GetPSO() && m_sbt && m_tlasResult);
 
-			// Set resources for HDR rendering
-			if (!m_tlasResult) {
-				LOGE("DXR render: missing TLAS; aborting DXR frame");
-				m_cmdList->Close();
-				return;
-			}
-			m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
-			m_cmdList->SetComputeRootUnorderedAccessView(1, m_hdrTexture->GetGPUVirtualAddress());
+			if (canDoDXR) {
+				// DXR path: dispatch rays to HDR texture
+				PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR to HDR");
 
-			// Dispatch rays to HDR texture
-			if (!m_sbt) {
-				LOGE("DXR render: SBT is null; aborting DXR frame");
-				m_cmdList->Close();
-				return;
+				m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
+				m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+				m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
+				m_cmdList->SetComputeRootUnorderedAccessView(1, m_hdrTexture->GetGPUVirtualAddress());
+
+				auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
+				m_cmdList->DispatchRays(&dispatchDesc);
+			} else {
+				// APP_0003: Fallback path - clear HDR with time-varying color
+				PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Clear Fallback");
+
+				// Compute time-varying color
+				static float time = 0.0f;
+				time += 0.016f; // ~60 FPS
+				float r = 0.5f + 0.5f * sinf(time);
+				float g = 0.5f + 0.5f * sinf(time * 1.3f);
+				float b = 0.5f + 0.5f * sinf(time * 0.7f);
+
+				// Get CPU and GPU descriptor handles for HDR UAV
+				D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
+				hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+				D3D12_GPU_DESCRIPTOR_HANDLE hdrUavGpuHandle = m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex);
+
+				// Clear HDR texture with animated color
+				FLOAT clearColor[4] = { r, g, b, 1.0f };
+				m_cmdList->ClearUnorderedAccessViewFloat(hdrUavGpuHandle, hdrUavCpuHandle,
+					m_hdrTexture.Get(), clearColor, 0, nullptr);
+
+				// Log the fallback (every 60 frames)
+				static int fallbackFrames = 0;
+				if (++fallbackFrames % 60 == 0) {
+					LOGI("APP_0003: HDR clear fallback frame " + std::to_string(fallbackFrames) +
+						 " RGB(" + std::to_string(r) + "," + std::to_string(g) + "," + std::to_string(b) + ")");
+				}
 			}
-			auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
-			m_cmdList->DispatchRays(&dispatchDesc);
 		}
 
 		// Barrier: HDR UAV -> SRV for composite read
