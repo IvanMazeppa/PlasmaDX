@@ -1,0 +1,27 @@
+{
+  "id": "VOL_0007",
+  "title": "God rays and advanced volumetric effects",
+  "owner": "GPT-5",
+  "motivation": "Add visually striking light shafts and refined scattering.",
+  "scope": {
+    "files": [
+      "shaders/vol/ray_march_cs.hlsl",
+      "src/volumetric/RayMarcher.h",
+      "src/volumetric/RayMarcher.cpp"
+    ]
+  },
+  "deliverables": [
+    "Light-space shaft integration with temporal accumulation",
+    "Controls for shaft intensity/softness",
+    "Optional screen-space assist for stability"
+  ],
+  "acceptance": [
+    "Visible light shafts consistent with light direction and density",
+    "Stable under camera motion with temporal accumulation"
+  ],
+  "notes": [
+    "Gate screen-space assists behind toggles for quality modes"
+  ]
+}
+
+

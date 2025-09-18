@@ -1,6 +1,7 @@
 #include "App.h"
 #include "Camera.h"
 #include "../utils/Logger.h"
+#include "../utils/Env.h"
 #include "../utils/DescriptorHeap.h"
 #include "../dxr/ASBuilder.h"
 #include "../dxr/Pipeline.h"
@@ -33,6 +34,36 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		UINT w = LOWORD(lParam), h = HIWORD(lParam);
 		if (w > 0 && h > 0) g_appInstance->onResize(w, h);
 	}
+
+	// Input toggles (DXR_0022)
+	if (msg == WM_KEYDOWN && g_appInstance) {
+		switch (wParam) {
+		case 'P':  // Pause toggle
+			{
+				static bool paused = false;
+				paused = !paused;
+				LOGI(paused ? "Rendering PAUSED (press P to resume)" : "Rendering RESUMED");
+				// TODO: Actually pause rendering when implemented
+			}
+			break;
+		case VK_F1:  // Toggle debug layer readouts
+			{
+				static bool debugVerbose = false;
+				debugVerbose = !debugVerbose;
+				LOGI(debugVerbose ? "Debug verbose output ENABLED (F1)" : "Debug verbose output DISABLED (F1)");
+				// TODO: Control debug verbosity when debug queue is working
+			}
+			break;
+		case VK_F2:  // Save current log to timestamped file
+			{
+				LOGI("F2: Flushing log file");
+				// The logger auto-flushes, but we can add a timestamp marker
+				LOGI("=== F2 Manual Log Checkpoint ===");
+			}
+			break;
+		}
+	}
+
 	return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
@@ -72,16 +103,16 @@ LONG __stdcall App::UnhandledExceptionThunk(EXCEPTION_POINTERS* ex) {
 
 bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 	attachDebugConsole();
+
 	// Install unhandled exception filter to log crash codes and a short stack
 	SetUnhandledExceptionFilter(App::UnhandledExceptionThunk);
 
-	// Behavior: control exit-on-device-removal via env var
+	// Behavior: control exit-on-device-removal via env var (DXR_0022 - using Env helper)
 	// Default true; set PLASMADX_NO_QUIT_ON_REMOVAL=1 to keep window open
-	if (getenv("PLASMADX_NO_QUIT_ON_REMOVAL")) {
-		m_quitOnRemoval = false;
+	m_quitOnRemoval = !Env::GetBool("PLASMADX_NO_QUIT_ON_REMOVAL", false);
+	if (!m_quitOnRemoval) {
 		LOGW("Quit-on-device-removal is DISABLED (env PLASMADX_NO_QUIT_ON_REMOVAL=1)");
 	} else {
-		m_quitOnRemoval = true;
 		LOGI("Quit-on-device-removal is ENABLED (default)");
 	}
 	LOGI("Initializing PlasmaDX with D3D12 Agility SDK...");
@@ -216,8 +247,8 @@ bool App::createWindow(HINSTANCE hInstance, int nCmdShow) {
 }
 
 bool App::createDevice() {
-	// Device creation matrix: test combinations of Agility/Debug
-	bool useDebug = (getenv("PLASMADX_NO_DEBUG") == nullptr);
+	// Device creation matrix: test combinations of Agility/Debug (DXR_0022 - using Env helper)
+	bool useDebug = !Env::GetBool("PLASMADX_NO_DEBUG", false);
 
 	LOGI("=== DEVICE CREATION MATRIX ===");
 	char matrixLog[256];

@@ -1,0 +1,31 @@
+{
+  "id": "VOL_0005",
+  "title": "Temporal accumulation with reprojection and neighborhood clamping",
+  "owner": "GPT-5",
+  "motivation": "Reduce volumetric noise and improve stability during motion.",
+  "scope": {
+    "files": [
+      "src/renderer/TAA.h",
+      "src/renderer/TAA.cpp",
+      "shaders/vol/taa_blend.hlsl",
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "History HDR buffer + current HDR",
+    "Reprojection using previous view-projection",
+    "Neighborhood clamp to mitigate ghosting",
+    "Jitter sequence (STBN/blue noise) integration"
+  ],
+  "acceptance": [
+    "Noise visibly reduced under camera motion",
+    "Minimal ghosting with clamp enabled",
+    "Stable under resize and toggles"
+  ],
+  "notes": [
+    "Update prev matrices after composite",
+    "Reset history on large parameter changes"
+  ]
+}
+
+

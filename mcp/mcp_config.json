@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "dx12-docs": {
-      "command": "python",
-      "args": ["D:/Users/dilli/AndroidStudioProjects/PlasmaDX/mcp/dx12_mcp_server.py"],
-      "description": "DirectX 12, DXR, and Agility SDK documentation server"
-    }
-  }
-}

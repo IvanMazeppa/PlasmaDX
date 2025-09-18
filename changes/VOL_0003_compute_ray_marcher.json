@@ -1,0 +1,36 @@
+{
+  "id": "VOL_0003",
+  "title": "Compute ray marcher to HDR (Beer–Lambert)",
+  "owner": "GPT-5",
+  "motivation": "Render the volume without DXR to validate data, controls, and performance.",
+  "scope": {
+    "files": [
+      "src/volumetric/RayMarcher.h",
+      "src/volumetric/RayMarcher.cpp",
+      "shaders/vol/ray_march_cs.hlsl",
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "Compute shader ray marches density grid with absorption only",
+    "Parameters: steps, step size, density scale, exposure, light dir",
+    "Writes to HDR UAV; composite to swapchain",
+    "PIX markers around dispatch and barriers"
+  ],
+  "acceptance": [
+    "Visible fog/plasma affected by parameters",
+    "Frame time stable across frames; no stalls",
+    "No validation errors; clean barriers"
+  ],
+  "implementation": [
+    "Per-dispatch constants with camera matrices",
+    "World-space ray setup from camera, AABB bounds test",
+    "Early-out when transmittance low"
+  ],
+  "test_plan": [
+    "Vary steps and density scale; observe output",
+    "PIX timing check; ensure predictable dispatch time"
+  ]
+}
+
+
