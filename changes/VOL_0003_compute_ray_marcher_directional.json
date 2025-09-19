@@ -1,0 +1,29 @@
+{
+  "id": "VOL_0003",
+  "title": "Compute ray march: directional light, basic self-shadowing, HDR output",
+  "summary": "Add a compute ray marcher that samples the 3D density, applies Beer-Lambert absorption and a single directional light with in-volume shadowing, and writes to HDR.",
+  "motivation": "First visual of the real volumetric effect; enables iterating lighting and quality controls.",
+  "scope": [
+    "Shader: raymarch.hlsl (cs_6_0) → RWTexture2D<float4> HDR, Texture3D<float> density SRV",
+    "Camera params: view-proj or ray dir generation in CS, right-handed, Y-up",
+    "Directional light: world-space dir, intensity, color; self-shadow by marching toward light",
+    "Controls: densityScale, absorption, maxSteps, stepSize, lightDir, lightColor (Phase 1 via keys)",
+    "Temporal hooks: optional history buffer (to be activated in VOL_0004)",
+    "Barriers: density SRV, HDR UAV; insert UAV barrier, then HDR UAV→SRV for composite"
+  ],
+  "steps": [
+    "Inputs: bind density SRV (t#), HDR UAV (u#), camera constants, volume params constants",
+    "Ray gen: per-pixel eye ray; intersect a fixed AABB ([-bounds, +bounds])",
+    "Integrate: accumulate emission/absorption along the ray; for shadowing, do short ray to light per step or every N steps",
+    "Write: HDR color; optional tonemap later in composite PS",
+    "CMake: add compile for raymarch.dxil; copy on build",
+    "Validation: add heartbeat log every ~60 frames with average steps and occupancy"
+  ],
+  "acceptance_criteria": [
+    "Distinct volumetric appearance with a moving light or camera",
+    "No device removal; PIX shows raymarch dispatch plus HDR composite",
+    "Runtime controls adjust look in real time; parameters logged on change"
+  ]
+}
+
+

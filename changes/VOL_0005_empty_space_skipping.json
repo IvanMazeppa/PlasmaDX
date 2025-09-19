@@ -1,0 +1,17 @@
+{
+  "id": "VOL_0005",
+  "title": "Empty-space skipping and step optimization",
+  "summary": "Accelerate ray marching by skipping empty regions using a min-max mip or coarse occupancy grid, plus adaptive step size.",
+  "scope": [
+    "Preprocess: build a min-max mip pyramid or occupancy Texture3D<uint> via compute",
+    "Marching: query coarse level to skip blocks; adapt step size by density/gradient",
+    "Controls: toggle skipping, tune thresholds"
+  ],
+  "acceptance_criteria": [
+    "Significant reduction in average steps per pixel (logged)",
+    "Image matches within tolerance with skipping on/off",
+    "No artifacts at block boundaries"
+  ]
+}
+
+

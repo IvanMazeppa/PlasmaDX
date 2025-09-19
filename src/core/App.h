@@ -43,6 +43,7 @@ class Composite;
 class Camera;
 class DescriptorHeap;
 class Particles;
+class DensityVolume;
 
 class App {
 public:
@@ -79,8 +80,8 @@ private:
 
 private:
 	HWND m_hwnd = nullptr;
-	UINT m_width = 1280;
-	UINT m_height = 720;
+	UINT m_width = 1920;
+	UINT m_height = 1080;
 
 	Microsoft::WRL::ComPtr<IDXGIFactory7> m_factory;
 	Microsoft::WRL::ComPtr<ID3D12Device5> m_device;
@@ -125,6 +126,7 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_hdrTexture;
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
+	bool m_hdrIsInSRVForRead = false; // Tracks HDR state for correct transitions
 
 	// Descriptor heap allocator (DXR_0021)
 	std::unique_ptr<DescriptorHeap> m_descriptorAllocator;
@@ -134,6 +136,9 @@ private:
 
 	// Particle system (VOL_0001)
 	std::unique_ptr<Particles> m_particles;
+
+	// Density volume (VOL_0002)
+	std::unique_ptr<DensityVolume> m_densityVolume;
 
 	// Debug/diagnostics interfaces
 	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_d3d12InfoQueue;

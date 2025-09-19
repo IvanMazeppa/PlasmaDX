@@ -9,6 +9,7 @@
 #include "../renderer/Composite.h"
 #include "../utils/FileLoader.h"
 #include "../volumetric/Particles.h"
+#include "../volumetric/DensityVolume.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -60,6 +61,14 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("F2: Flushing log file");
 				// The logger auto-flushes, but we can add a timestamp marker
 				LOGI("=== F2 Manual Log Checkpoint ===");
+			}
+			break;
+		case VK_F3:  // Cycle density volume presets (VOL_0002)
+			if (g_appInstance->m_densityVolume) {
+				g_appInstance->m_densityVolume->CyclePreset();
+				g_appInstance->m_densityVolume->RecreateVolume(g_appInstance->m_device,
+					g_appInstance->m_descriptorAllocator.get());
+				LOGI("F3: Density volume preset changed");
 			}
 			break;
 		}
@@ -409,6 +418,18 @@ void App::renderFrame() {
 		ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
 		m_cmdList->SetDescriptorHeaps(1, heaps);
 
+		// Ensure HDR is in UAV state for compute writes
+		if (m_hdrIsInSRVForRead) {
+			D3D12_RESOURCE_BARRIER toUAV{};
+			toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			toUAV.Transition.pResource = m_hdrTexture.Get();
+			toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+			toUAV.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+			toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			m_cmdList->ResourceBarrier(1, &toUAV);
+			m_hdrIsInSRVForRead = false;
+		}
+
 		// Update particle simulation
 		static float totalTimeFallback = 0.0f;
 		const float deltaTime = 0.016f; // ~60 FPS delta time
@@ -419,6 +440,22 @@ void App::renderFrame() {
 		// Particle debug write to HDR texture
 		m_particles->WriteDebugPattern(m_cmdList.Get(), m_hdrTexture.Get(),
 			m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), m_width, m_height);
+
+		// Ensure ordering and transition HDR to SRV for composite sampling
+		{
+			D3D12_RESOURCE_BARRIER uav{}; uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; uav.UAV.pResource = m_hdrTexture.Get();
+			m_cmdList->ResourceBarrier(1, &uav);
+			if (!m_hdrIsInSRVForRead) {
+				D3D12_RESOURCE_BARRIER toSRV{};
+				toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				toSRV.Transition.pResource = m_hdrTexture.Get();
+				toSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+				toSRV.Transition.StateAfter  = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+				toSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				m_cmdList->ResourceBarrier(1, &toSRV);
+				m_hdrIsInSRVForRead = true;
+			}
+		}
 
 		// Composite HDR to backbuffer if we have composite system
 		if (m_composite) {
@@ -560,9 +597,13 @@ void App::onResize(UINT w, UINT h) {
 	waitGPU();
 	for (UINT i = 0; i < kBackBufferCount; ++i) m_backbuffers[i].Reset();
 	m_width = w; m_height = h;
-	m_swapchain->ResizeBuffers(kBackBufferCount, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+    m_swapchain->ResizeBuffers(kBackBufferCount, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
 	m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
 	createRTVs();
+    // Keep HDR texture in sync with swapchain size
+    if (m_hdrTexture) {
+        recreateHDRTexture();
+    }
 }
 
 void App::checkDeviceRemoved(HRESULT hr) {
@@ -721,6 +762,14 @@ bool App::initializeDXR() {
 	}
 	LOGI("Particle system initialized (65536 particles)");
 
+	// Initialize density volume (VOL_0002)
+	m_densityVolume = std::make_unique<DensityVolume>();
+	if (!m_densityVolume->Initialize(m_device, m_descriptorAllocator.get(), DensityVolume::VolumePreset::Medium)) {
+		LOGE("Failed to initialize density volume");
+		return false;
+	}
+	LOGI("Density volume initialized");
+
 	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
 }
@@ -775,25 +824,32 @@ void App::createDXRPipeline() {
 
 	LOGI("DXR shader loaded successfully (" + std::to_string(m_dxrShaderBlob->GetBufferSize()) + " bytes)");
 
-	// Create global root signature
-	D3D12_ROOT_PARAMETER params[2]{};
+    // Create global root signature (DXR_0023): TLAS as root SRV, HDR UAV via descriptor table
+    D3D12_DESCRIPTOR_RANGE uavRange = {};
+    uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uavRange.NumDescriptors = 1;
+    uavRange.BaseShaderRegister = 0; // u0
+    uavRange.RegisterSpace = 0;
+    uavRange.OffsetInDescriptorsFromTableStart = 0;
 
-	// TLAS SRV
-	params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-	params[0].Descriptor.ShaderRegister = 0;  // t0
-	params[0].Descriptor.RegisterSpace = 0;
-	params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_ROOT_PARAMETER params[2]{};
 
-	// Output UAV
-	params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-	params[1].Descriptor.ShaderRegister = 0;  // u0
-	params[1].Descriptor.RegisterSpace = 0;
-	params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    // TLAS SRV as root SRV (t0)
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    params[0].Descriptor.ShaderRegister = 0;  // t0
+    params[0].Descriptor.RegisterSpace = 0;
+    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-	D3D12_ROOT_SIGNATURE_DESC rootSigDesc{};
-	rootSigDesc.NumParameters = 2;
-	rootSigDesc.pParameters = params;
-	rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    // HDR UAV as descriptor table (u0)
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[1].DescriptorTable.NumDescriptorRanges = 1;
+    params[1].DescriptorTable.pDescriptorRanges = &uavRange;
+    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC rootSigDesc{};
+    rootSigDesc.NumParameters = 2;
+    rootSigDesc.pParameters = params;
+    rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
 	// Create root signature directly (stub doesn't provide utility method)
 	ComPtr<ID3DBlob> serializedRootSig;
@@ -899,7 +955,8 @@ void App::renderFrameDXR() {
 	// Check if we have HDR pipeline or fallback to direct backbuffer rendering
 	bool useHDRPipeline = (m_hdrTexture != nullptr && m_composite != nullptr);
 
-	if (useHDRPipeline) {
+    if (useHDRPipeline) {
+        bool wroteHDRThisFrame = false;
 		// Update particle system (VOL_0001)
 		if (m_particles) {
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "Particles Update");
@@ -915,11 +972,23 @@ void App::renderFrameDXR() {
 
 			m_particles->Update(m_cmdList.Get(), deltaTime, totalTime);
 
-			// Particle debug write to HDR texture
-			if (m_hdrUavIndex != UINT_MAX) {
-				m_particles->WriteDebugPattern(m_cmdList.Get(), m_hdrTexture.Get(),
-					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), m_width, m_height);
+			// VOL_0002: Fill density volume with analytic field
+			if (m_densityVolume && m_hdrUavIndex != UINT_MAX) {
+				m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
+
+				// Debug: Render a Z-slice of the density volume to HDR
+				uint32_t sliceZ = static_cast<uint32_t>(totalTime * 10.0f) % m_densityVolume->GetDimension();
+				m_densityVolume->DebugSlice(m_cmdList.Get(), m_hdrTexture,
+					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), sliceZ);
+				wroteHDRThisFrame = true;
 			}
+
+			// Particle debug write to HDR texture (disabled for now, using density slice instead)
+			// if (m_hdrUavIndex != UINT_MAX) {
+			//     m_particles->WriteDebugPattern(m_cmdList.Get(), m_hdrTexture.Get(),
+			//         m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), m_width, m_height);
+			//     wroteHDRThisFrame = true;
+			// }
 
 			// VOL_0001: Particle debug pattern is calculated (in WriteDebugPattern)
 			// The HDR texture should contain some content from DXR or compute operations
@@ -934,23 +1003,48 @@ void App::renderFrameDXR() {
 			ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
 			m_cmdList->SetDescriptorHeaps(1, heaps);
 
-			// APP_0003: Guard DXR dispatch behind validity checks
-			bool canDoDXR = (m_dxrPipeline && m_dxrPipeline->GetPSO() && m_sbt && m_tlasResult);
+            // APP_0003: Guard DXR dispatch behind validity checks and env override
+            bool dxrDisabled = Env::GetBool("PLASMADX_DISABLE_DXR", true); // default: compute-only
+            bool canDoDXR = (!dxrDisabled && m_dxrPipeline && m_dxrPipeline->GetPSO() && m_sbt && m_tlasResult);
 
-			if (canDoDXR) {
+            if (canDoDXR) {
 				// DXR path: dispatch rays to HDR texture
 				PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR to HDR");
+                auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
+                // Validate SBT addresses; if missing, skip DXR
+                bool sbtValid =
+                    dispatchDesc.RayGenerationShaderRecord.StartAddress != 0 &&
+                    dispatchDesc.MissShaderTable.StartAddress != 0 &&
+                    dispatchDesc.HitGroupTable.StartAddress != 0;
 
-				m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
-				m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
-				m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
-				m_cmdList->SetComputeRootUnorderedAccessView(1, m_hdrTexture->GetGPUVirtualAddress());
-
-				auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
-				m_cmdList->DispatchRays(&dispatchDesc);
-			} else {
+                if (!sbtValid) {
+                    LOGW("DXR dispatch skipped: SBT addresses are not set (compute-only fallback)");
+                } else {
+                    m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
+                    m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+                    m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
+                    // Ensure HDR UAV is in UAV state before binding
+                    if (m_hdrIsInSRVForRead) {
+                        D3D12_RESOURCE_BARRIER toUAV{};
+                        toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                        toUAV.Transition.pResource = m_hdrTexture.Get();
+                        toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                        toUAV.Transition.StateAfter  = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                        toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                        m_cmdList->ResourceBarrier(1, &toUAV);
+                        m_hdrIsInSRVForRead = false;
+                    }
+                    // Bind HDR UAV descriptor table (u0)
+                    m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex));
+                    m_cmdList->DispatchRays(&dispatchDesc);
+                }
+            } else {
 				// APP_0003: Fallback path - clear HDR with time-varying color
-				PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Clear Fallback");
+                if (wroteHDRThisFrame) {
+                    PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Compute Content - Skip Fallback Clear");
+                    // Keep computed content; do not overwrite with fallback color
+                } else {
+                    PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Clear Fallback");
 
 				// Compute time-varying color
 				static float time = 0.0f;
@@ -959,33 +1053,47 @@ void App::renderFrameDXR() {
 				float g = 0.5f + 0.5f * sinf(time * 1.3f);
 				float b = 0.5f + 0.5f * sinf(time * 0.7f);
 
-				// Get CPU and GPU descriptor handles for HDR UAV
-				D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
-				hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-				D3D12_GPU_DESCRIPTOR_HANDLE hdrUavGpuHandle = m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex);
+                    // Get CPU and GPU descriptor handles for HDR UAV
+                    D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
+                    hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                    D3D12_GPU_DESCRIPTOR_HANDLE hdrUavGpuHandle = m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex);
 
-				// Clear HDR texture with animated color
-				FLOAT clearColor[4] = { r, g, b, 1.0f };
-				m_cmdList->ClearUnorderedAccessViewFloat(hdrUavGpuHandle, hdrUavCpuHandle,
-					m_hdrTexture.Get(), clearColor, 0, nullptr);
+                    // Clear HDR texture with animated color
+                    FLOAT clearColor[4] = { r, g, b, 1.0f };
+                    m_cmdList->ClearUnorderedAccessViewFloat(hdrUavGpuHandle, hdrUavCpuHandle,
+                        m_hdrTexture.Get(), clearColor, 0, nullptr);
 
-				// Log the fallback (every 60 frames)
-				static int fallbackFrames = 0;
-				if (++fallbackFrames % 60 == 0) {
-					LOGI("APP_0003: HDR clear fallback frame " + std::to_string(fallbackFrames) +
-						 " RGB(" + std::to_string(r) + "," + std::to_string(g) + "," + std::to_string(b) + ")");
-				}
+                    // Log the fallback (every 60 frames)
+                    static int fallbackFrames = 0;
+                    if (++fallbackFrames % 60 == 0) {
+                        LOGI("APP_0003: HDR clear fallback frame " + std::to_string(fallbackFrames) +
+                             " RGB(" + std::to_string(r) + "," + std::to_string(g) + "," + std::to_string(b) + ")");
+                    }
+                }
 			}
 		}
 
-		// Barrier: HDR UAV -> SRV for composite read
-		{
-			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR UAV->SRV Barrier");
-			D3D12_RESOURCE_BARRIER hdrBarrier{};
-			hdrBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-			hdrBarrier.UAV.pResource = m_hdrTexture.Get();
-			m_cmdList->ResourceBarrier(1, &hdrBarrier);
-		}
+        // Barriers: ensure ordering, then transition HDR for SRV sampling
+        {
+            PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR UAV→SRV Barriers");
+            // UAV barrier for ordering
+            D3D12_RESOURCE_BARRIER uav{};
+            uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            uav.UAV.pResource = m_hdrTexture.Get();
+            m_cmdList->ResourceBarrier(1, &uav);
+
+            // Transition to SRV states for Composite sampling if not already
+            if (!m_hdrIsInSRVForRead) {
+                D3D12_RESOURCE_BARRIER toSRV{};
+                toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                toSRV.Transition.pResource = m_hdrTexture.Get();
+                toSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                toSRV.Transition.StateAfter  = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                toSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                m_cmdList->ResourceBarrier(1, &toSRV);
+                m_hdrIsInSRVForRead = true;
+            }
+        }
 
 		// Transition backbuffer PRESENT -> RTV
 		{
@@ -1098,6 +1206,9 @@ void App::renderFrameDXR() {
 	} else {
 		LOGI("PIX: Present Complete");
 	}
+    // Before next frame's writes, reset HDR state tracking
+    m_hdrIsInSRVForRead = false; // Next frame will write HDR as UAV again
+
     // Signal fence for this frame index and store value per backbuffer
     const UINT64 signalValue = ++m_fenceValue;
     m_queue->Signal(m_fence.Get(), signalValue);

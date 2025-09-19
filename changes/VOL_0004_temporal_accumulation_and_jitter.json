@@ -1,0 +1,24 @@
+{
+  "id": "VOL_0004",
+  "title": "Temporal accumulation + camera jitter hooks",
+  "summary": "Add an HDR history buffer and exponential moving average accumulation to reduce noise/flicker; add camera subpixel jitter (Halton) hooks for later TAA.",
+  "scope": [
+    "Add HDR history texture (same format/size as HDR)",
+    "Compute pass blends current raymarch output with history using alpha based on step count/noise",
+    "Add camera jitter sequence; expose enable/disable",
+    "Barriers and lifetime: manage SRV/UAV states for history and HDR"
+  ],
+  "steps": [
+    "Create history SRV+UAV via DescriptorHeap allocator; track state",
+    "In raymarch or a follow-up compute, read history SRV, write HDR UAV with blended result",
+    "Double-buffer or ping-pong if needed; swap pointers per frame",
+    "Controls: key to toggle accumulation, key to reset history"
+  ],
+  "acceptance_criteria": [
+    "Visibly smoother image over time when accumulation is on",
+    "No state mismatch warnings; clean PIX barriers",
+    "History reset works and is logged"
+  ]
+}
+
+

@@ -32,6 +32,8 @@ add_executable(PlasmaDX WIN32
     src/utils/Logger.h
     src/volumetric/Particles.cpp
     src/volumetric/Particles.h
+    src/volumetric/DensityVolume.cpp
+    src/volumetric/DensityVolume.h
 )
 
 # Unicode build
@@ -120,8 +122,34 @@ add_custom_command(
     COMMENT "Compiling particles debug pattern compute shader"
 )
 
+# Compile density volume shaders (VOL_0002)
+set(DENSITY_FILL_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/density_fill.hlsl")
+set(DENSITY_FILL_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/density_fill.dxil")
+set(DENSITY_SLICE_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/density_slice.hlsl")
+set(DENSITY_SLICE_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/density_slice.dxil")
+
+add_custom_command(
+    OUTPUT ${DENSITY_FILL_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${DENSITY_FILL_SHADER_OUTPUT} ${DENSITY_FILL_SHADER_SOURCE}
+    DEPENDS ${DENSITY_FILL_SHADER_SOURCE}
+    COMMENT "Compiling density fill compute shader"
+)
+
+add_custom_command(
+    OUTPUT ${DENSITY_SLICE_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${DENSITY_SLICE_SHADER_OUTPUT} ${DENSITY_SLICE_SHADER_SOURCE}
+    DEPENDS ${DENSITY_SLICE_SHADER_SOURCE}
+    COMMENT "Compiling density slice compute shader"
+)
+
 # Add shader compilation as dependency
-add_custom_target(compile_shaders DEPENDS ${DXR_SHADER_OUTPUT} ${VOL_UPDATE_SHADER_OUTPUT} ${VOL_DEBUG_SHADER_OUTPUT})
+add_custom_target(compile_shaders DEPENDS
+    ${DXR_SHADER_OUTPUT}
+    ${VOL_UPDATE_SHADER_OUTPUT}
+    ${VOL_DEBUG_SHADER_OUTPUT}
+    ${DENSITY_FILL_SHADER_OUTPUT}
+    ${DENSITY_SLICE_SHADER_OUTPUT}
+)
 add_dependencies(PlasmaDX compile_shaders)
 
 # Copy shaders to output directory

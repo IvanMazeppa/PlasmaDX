@@ -1,5 +1,6 @@
 #include "Particles.h"
 #include "../utils/Logger.h"
+#include "../utils/FileLoader.h"
 #include <d3dcompiler.h>
 #include <random>
 #include <algorithm>
@@ -80,6 +81,14 @@ bool Particles::CreateRootSignatures() {
     // Debug pattern root signature
     {
         D3D12_ROOT_PARAMETER params[3] = {};
+        D3D12_DESCRIPTOR_RANGE uavRange = {};
+
+        // UAV descriptor table for RWTexture2D(u0)
+        uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        uavRange.NumDescriptors = 1;
+        uavRange.BaseShaderRegister = 0; // u0
+        uavRange.RegisterSpace = 0;
+        uavRange.OffsetInDescriptorsFromTableStart = 0;
 
         // Constant buffer (b0)
         params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -87,16 +96,16 @@ bool Particles::CreateRootSignatures() {
         params[0].Descriptor.RegisterSpace = 0;
         params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-        // Particle buffer SRV (t0)
+        // Particle buffer SRV (t0) as root SRV (buffer). Note: shader will not read when particleCount==0
         params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         params[1].Descriptor.ShaderRegister = 0;
         params[1].Descriptor.RegisterSpace = 0;
         params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-        // HDR texture UAV (u0)
-        params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-        params[2].Descriptor.ShaderRegister = 0;
-        params[2].Descriptor.RegisterSpace = 0;
+        // HDR texture UAV (u0) via descriptor table (textures cannot be bound via root UAV)
+        params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[2].DescriptorTable.NumDescriptorRanges = 1;
+        params[2].DescriptorTable.pDescriptorRanges = &uavRange;
         params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
         D3D12_ROOT_SIGNATURE_DESC desc = {};
@@ -125,10 +134,50 @@ bool Particles::CreateRootSignatures() {
 }
 
 bool Particles::CreatePipelineStates() {
-    // For now, create placeholder pipeline states (we'll load shaders later)
-    // This allows the rest of the system to compile and link
+    // Load precompiled DXIL and create compute PSOs
+    using Microsoft::WRL::ComPtr;
 
-    LOGI("Particles: Pipeline states will be created when shaders are available");
+    // Update PSO
+    {
+        ComPtr<ID3DBlob> csBlob;
+        std::string errorMessage;
+        if (!FileLoader::LoadDXILShader("shaders/vol/particles_update.dxil", csBlob, errorMessage)) {
+            LOGE("Particles: Failed to load update CS DXIL: " + errorMessage);
+            return false;
+        }
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = m_updateRootSignature.Get();
+        desc.CS = { csBlob->GetBufferPointer(), csBlob->GetBufferSize() };
+
+        HRESULT hr = m_device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&m_updatePipelineState));
+        if (FAILED(hr)) {
+            LOGE("Particles: Failed to create update compute PSO");
+            return false;
+        }
+    }
+
+    // Debug pattern PSO
+    {
+        ComPtr<ID3DBlob> csBlob;
+        std::string errorMessage;
+        if (!FileLoader::LoadDXILShader("shaders/vol/particles_debug_pattern.dxil", csBlob, errorMessage)) {
+            LOGE("Particles: Failed to load debug pattern CS DXIL: " + errorMessage);
+            return false;
+        }
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = m_debugRootSignature.Get();
+        desc.CS = { csBlob->GetBufferPointer(), csBlob->GetBufferSize() };
+
+        HRESULT hr = m_device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&m_debugPipelineState));
+        if (FAILED(hr)) {
+            LOGE("Particles: Failed to create debug pattern compute PSO");
+            return false;
+        }
+    }
+
+    LOGI("Particles: Compute PSOs created (update + debug pattern)");
     return true;
 }
 
@@ -260,34 +309,36 @@ void Particles::WriteDebugPattern(ID3D12GraphicsCommandList* cmdList,
                                   ID3D12Resource* hdrTexture,
                                   D3D12_GPU_DESCRIPTOR_HANDLE hdrUavHandle,
                                   uint32_t width, uint32_t height) {
-    // For VOL_0001, write a time-varying color pattern to HDR to prove the system works
-    // This will be replaced by actual particle rendering later
-
-    static float hue = 0.0f;
-    hue += 0.01f;
-    if (hue > 1.0f) hue = 0.0f;
-
-    // Simple HSV to RGB conversion for test pattern
-    float r, g, b;
-    float h = hue * 6.0f;
-    float c = 1.0f;
-    float x = c * (1.0f - fabs(fmod(h, 2.0f) - 1.0f));
-
-    if (h < 1.0f) { r = c; g = x; b = 0; }
-    else if (h < 2.0f) { r = x; g = c; b = 0; }
-    else if (h < 3.0f) { r = 0; g = c; b = x; }
-    else if (h < 4.0f) { r = 0; g = x; b = c; }
-    else if (h < 5.0f) { r = x; g = 0; b = c; }
-    else { r = c; g = 0; b = x; }
-
-    static int frameCount = 0;
-    if (++frameCount % 60 == 0) {
-        LOGI("Particles: Debug pattern frame " + std::to_string(frameCount) +
-             " (hue=" + std::to_string(hue) + ", rgb=" + std::to_string(r) + "," +
-             std::to_string(g) + "," + std::to_string(b) + ")");
+    // Dispatch compute shader that writes a debug pattern to the HDR UAV
+    if (!m_debugPipelineState || !m_debugRootSignature) {
+        LOGW("Particles: Debug PSO/RootSignature not ready; skipping debug dispatch");
+        return;
     }
 
-    // TODO: Implement compute shader dispatch when pipeline is ready
-    // For now, the pattern is calculated but not written to GPU
-    // This is sufficient for VOL_0001 as it proves the timing system works
+    // Ensure shader won't read particles SRV if we haven't uploaded data yet
+    if (m_mappedConstants) {
+        m_mappedConstants->particleCount = 0; // Avoid reading uninitialized SRV
+    }
+
+    // Bind root signature and pipeline
+    cmdList->SetComputeRootSignature(m_debugRootSignature.Get());
+    cmdList->SetPipelineState(m_debugPipelineState.Get());
+
+    // Set constants (b0)
+    cmdList->SetComputeRootConstantBufferView(0, m_constantBuffer->GetGPUVirtualAddress());
+
+    // Set particle buffer SRV (t0) as root SRV (buffer). Safe since particleCount==0
+    if (m_particleBuffer) {
+        cmdList->SetComputeRootShaderResourceView(1, m_particleBuffer->GetGPUVirtualAddress());
+    }
+
+    // Set HDR UAV (u0) via descriptor table
+    cmdList->SetComputeRootDescriptorTable(2, hdrUavHandle);
+
+    // Dispatch over the HDR texture size
+    const UINT groupSizeX = 8;
+    const UINT groupSizeY = 8;
+    UINT dispatchX = (width  + groupSizeX - 1) / groupSizeX;
+    UINT dispatchY = (height + groupSizeY - 1) / groupSizeY;
+    cmdList->Dispatch(dispatchX, dispatchY, 1);
 }
