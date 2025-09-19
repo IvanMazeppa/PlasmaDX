@@ -1,5 +1,8 @@
 ## Claude Starter Brief — PlasmaDX (DX12 + DXR)
 
+### 🚨 CRITICAL DIRECTORY GUARDRAIL
+**MANDATORY**: Before ANY work, Claude MUST verify working directory is `/mnt/d/users/dilli/androidstudioprojects/plasmadx/` (lowercase). This is PlasmaDX (DirectX 12), NOT PlasmaVulkan. If in wrong directory, IMMEDIATELY navigate to correct one and update this file path reference. Always use `pwd` to confirm location before file operations.
+
 ### 🚨 CRITICAL WORKFLOW ISSUE - Session Context Loss (PlasmaDX Project)
 **IMPORTANT**: When continuing from previous sessions, Claude may lose context about completed work and fail to create proper result files. The workflow requires:
 1. Tasks are defined in `changes/DXR_XXXX_name.json`

@@ -1,5 +1,7 @@
 # Status Report: PlasmaDX (September 18, 2025)
 
+> **🚨 DIRECTORY GUARDRAIL**: Project located at `/mnt/d/users/dilli/androidstudioprojects/plasmadx/` only.
+
 ## ✅ What's Working
 
 ### Infrastructure Complete

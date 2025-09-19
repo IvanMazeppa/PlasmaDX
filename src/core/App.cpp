@@ -10,6 +10,7 @@
 #include "../utils/FileLoader.h"
 #include "../volumetric/Particles.h"
 #include "../volumetric/DensityVolume.h"
+#include "../volumetric/VolumeRenderer.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -69,6 +70,34 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				g_appInstance->m_densityVolume->RecreateVolume(g_appInstance->m_device,
 					g_appInstance->m_descriptorAllocator.get());
 				LOGI("F3: Density volume preset changed");
+			}
+			break;
+		case VK_F4:  // Toggle debug slice vs ray marching (VOL_0003)
+			{
+				static bool useRayMarching = true;
+				useRayMarching = !useRayMarching;
+				LOGI(useRayMarching ? "F4: Ray marching enabled" : "F4: Debug slice enabled");
+				// TODO: Implement toggle in render loop
+			}
+			break;
+		case '1':  // Decrease density scale
+		case '2':  // Increase density scale
+			if (g_appInstance->m_volumeRenderer) {
+				auto params = g_appInstance->m_volumeRenderer->GetParams();
+				float newScale = params.densityScale + (wParam == '1' ? -0.1f : 0.1f);
+				newScale = max(0.1f, min(5.0f, newScale));
+				g_appInstance->m_volumeRenderer->SetDensityScale(newScale);
+				LOGI("Density scale changed");
+			}
+			break;
+		case '3':  // Decrease absorption
+		case '4':  // Increase absorption
+			if (g_appInstance->m_volumeRenderer) {
+				auto params = g_appInstance->m_volumeRenderer->GetParams();
+				float newAbsorption = params.absorption + (wParam == '3' ? -0.2f : 0.2f);
+				newAbsorption = max(0.1f, min(10.0f, newAbsorption));
+				g_appInstance->m_volumeRenderer->SetAbsorption(newAbsorption);
+				LOGI("Absorption changed");
 			}
 			break;
 		}
@@ -770,6 +799,14 @@ bool App::initializeDXR() {
 	}
 	LOGI("Density volume initialized");
 
+	// Initialize volume renderer (VOL_0003)
+	m_volumeRenderer = std::make_unique<VolumeRenderer>();
+	if (!m_volumeRenderer->Initialize(m_device, m_descriptorAllocator.get())) {
+		LOGE("Failed to initialize volume renderer");
+		return false;
+	}
+	LOGI("Volume renderer initialized");
+
 	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
 }
@@ -972,15 +1009,22 @@ void App::renderFrameDXR() {
 
 			m_particles->Update(m_cmdList.Get(), deltaTime, totalTime);
 
-			// VOL_0002: Fill density volume with analytic field
-			if (m_densityVolume && m_hdrUavIndex != UINT_MAX) {
+			// VOL_0002 & VOL_0003: Fill density volume and ray march
+			if (m_densityVolume && m_volumeRenderer && m_hdrUavIndex != UINT_MAX) {
+				// Fill density volume with analytic field
 				m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
 
-				// Debug: Render a Z-slice of the density volume to HDR
-				uint32_t sliceZ = static_cast<uint32_t>(totalTime * 10.0f) % m_densityVolume->GetDimension();
-				m_densityVolume->DebugSlice(m_cmdList.Get(), m_hdrTexture,
-					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex), sliceZ);
+				// VOL_0003: Ray march through the density volume
+				m_volumeRenderer->RenderVolume(m_cmdList.Get(),
+					m_densityVolume.get(),
+					m_hdrTexture,
+					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex),
+					m_camera.get(),
+					totalTime);
 				wroteHDRThisFrame = true;
+
+				// Optional: Still render debug slice with F4 key
+				// (keeping old debug slice code available but not active by default)
 			}
 
 			// Particle debug write to HDR texture (disabled for now, using density slice instead)

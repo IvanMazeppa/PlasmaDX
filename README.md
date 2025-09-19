@@ -1,5 +1,7 @@
 ## PlasmaDX (DirectX 12 + DXR) Skeleton
 
+> **🚨 DIRECTORY REQUIREMENT**: This project MUST be accessed from `/mnt/d/users/dilli/androidstudioprojects/plasmadx/` (lowercase). This is NOT PlasmaVulkan.
+
 Purpose
 - Real-time (and offline-capable) ray traced volumetric plasma renderer using DX12 + DXR.
 

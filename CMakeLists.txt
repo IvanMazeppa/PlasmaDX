@@ -34,6 +34,8 @@ add_executable(PlasmaDX WIN32
     src/volumetric/Particles.h
     src/volumetric/DensityVolume.cpp
     src/volumetric/DensityVolume.h
+    src/volumetric/VolumeRenderer.cpp
+    src/volumetric/VolumeRenderer.h
 )
 
 # Unicode build
@@ -142,6 +144,17 @@ add_custom_command(
     COMMENT "Compiling density slice compute shader"
 )
 
+# Compile ray marching shader (VOL_0003)
+set(RAYMARCH_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/raymarch.hlsl")
+set(RAYMARCH_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/raymarch.dxil")
+
+add_custom_command(
+    OUTPUT ${RAYMARCH_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${RAYMARCH_SHADER_OUTPUT} ${RAYMARCH_SHADER_SOURCE}
+    DEPENDS ${RAYMARCH_SHADER_SOURCE}
+    COMMENT "Compiling ray marching compute shader"
+)
+
 # Add shader compilation as dependency
 add_custom_target(compile_shaders DEPENDS
     ${DXR_SHADER_OUTPUT}
@@ -149,6 +162,7 @@ add_custom_target(compile_shaders DEPENDS
     ${VOL_DEBUG_SHADER_OUTPUT}
     ${DENSITY_FILL_SHADER_OUTPUT}
     ${DENSITY_SLICE_SHADER_OUTPUT}
+    ${RAYMARCH_SHADER_OUTPUT}
 )
 add_dependencies(PlasmaDX compile_shaders)
 

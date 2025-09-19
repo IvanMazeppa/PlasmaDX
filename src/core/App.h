@@ -44,6 +44,7 @@ class Camera;
 class DescriptorHeap;
 class Particles;
 class DensityVolume;
+class VolumeRenderer;
 
 class App {
 public:
@@ -139,6 +140,9 @@ private:
 
 	// Density volume (VOL_0002)
 	std::unique_ptr<DensityVolume> m_densityVolume;
+
+	// Volume renderer (VOL_0003)
+	std::unique_ptr<VolumeRenderer> m_volumeRenderer;
 
 	// Debug/diagnostics interfaces
 	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_d3d12InfoQueue;
