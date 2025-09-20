@@ -1,0 +1,25 @@
+{
+  "id": "RENDER_0001_tonemap_exposure_and_gamma",
+  "title": "Add simple tonemapping, exposure, and gamma to Composite",
+  "summary": "Extend the fullscreen Composite pass with a clampable exposure control, Reinhard (or ACES) tonemap, and gamma correction for consistent display output.",
+  "rationale": "Volume brightness varies across densities and step sizes. A basic tonemapper helps compare compute vs DXR outputs and stabilizes perceived brightness.",
+  "files_expected": [
+    "src/renderer/Composite.h",
+    "src/renderer/Composite.cpp"
+  ],
+  "steps": [
+    "Add constant buffer or root constants for {exposure, gamma}.",
+    "Implement Reinhard tonemap: color/(1+color) with exposure pre-scale.",
+    "Apply pow(color, 1.0/gamma) before writing to swapchain.",
+    "Add keyboard controls: +/- exposure, [ ] gamma; log values.",
+    "Validate with HDR patterns and volume outputs."
+  ],
+  "acceptance_criteria": [
+    "Exposure/gamma adjustable at runtime; logged values reflect changes.",
+    "Image remains stable without clipping or banding.",
+    "PIX shows updated constants bound for Composite draw."
+  ],
+  "estimated_time": "20-30 minutes"
+}
+
+

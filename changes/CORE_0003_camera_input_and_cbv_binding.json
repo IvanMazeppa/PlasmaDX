@@ -1,0 +1,40 @@
+{
+  "id": "CORE_0003_camera_input_and_cbv_binding",
+  "title": "Integrate camera input + CBV(b0) across compute/volumetric passes",
+  "summary": "Wire keyboard/mouse input to a Camera class, update per-frame constants, and bind a 256-byte aligned CBV(b0) for all compute passes (density, raymarch, particles).",
+  "rationale": "DXR_0019 notes CBV and input integration gaps. Ray marching (VOL_0003) requires view/projection and inverse matrices to generate rays and for reprojection in VOL_0004.",
+  "files_expected": [
+    "src/core/App.h",
+    "src/core/App.cpp",
+    "src/core/Camera.h",
+    "src/core/Camera.cpp",
+    "src/volumetric/Particles.cpp",
+    "src/renderer/Composite.cpp",
+    "shaders/vol/*.hlsl (root sig updates as needed)"
+  ],
+  "steps": [
+    "Add CBV(b0) to global/compute root signatures used by volumetric passes.",
+    "Ensure Camera constant buffer is created (256B aligned) and updated each frame.",
+    "Handle WM_KEYDOWN/WM_MOUSEMOVE in WndProc and control Camera (WASD + mouselook).",
+    "Bind camera CBV via SetComputeRootConstantBufferView before density/raymarch/particles dispatches.",
+    "Log camera params (position, yaw/pitch) each second for validation; add PIX events.",
+    "Verify barriers remain correct; no changes to HDR transitions needed."
+  ],
+  "acceptance_criteria": [
+    "Moving camera changes on-screen result (density slice/raymarch).",
+    "PIX shows CBV bound for compute dispatches.",
+    "No D3D12 debug errors; stable at 60 FPS baseline."
+  ],
+  "risks": [
+    "Mismatched root signatures between PSOs and command list bindings",
+    "Input handling threading issues (ensure on main thread WndProc)"
+  ],
+  "validation": [
+    "Check logs for periodic camera state output",
+    "Capture PIX and inspect root parameters",
+    "Wiggle camera and observe parallax in volume"
+  ],
+  "estimated_time": "30-45 minutes"
+}
+
+

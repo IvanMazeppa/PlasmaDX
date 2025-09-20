@@ -1,0 +1,38 @@
+{
+  "id": "VOL_0002_density_grid",
+  "status": "completed",
+  "completion_date": "2025-09-19",
+  "title": "3D Density Grid + Debug Slice",
+  "summary": "Implemented R16_FLOAT 3D density texture with SRV/UAV and a debug slice path to HDR. Verified on-screen as a volumetric-looking structure.",
+  "achievements": {
+    "texture3d": "Created density Texture3D (R16_FLOAT) with SRV/UAV views",
+    "compute_filler": "Compute shader fills analytic density for validation",
+    "debug_slice": "Optional Z-slice write into HDR for quick inspection",
+    "barriers": "Correct UAV→SRV transitions before composite",
+    "pix": "PIX markers cover density build and composite"
+  },
+  "implementation": {
+    "formats": ["DXGI_FORMAT_R16_FLOAT"],
+    "sizes_tested": [96, 128, 192, 256],
+    "descriptor_heap": "Integrated with DescriptorHeap allocator",
+    "resource_state": "UAV for writes during compute; SRV for composite read",
+    "shaders": ["vol_density_fill.hlsl (compute)", "vol_debug_slice.hlsl (compute)"]
+  },
+  "acceptance_criteria": [
+    "Volume-like structure visible in viewport",
+    "No debug layer errors for resource states",
+    "PIX capture shows density fill then composite",
+    "Window resize recreates density and HDR safely"
+  ],
+  "evidence": {
+    "screenshot": "screenshot/{3C25DE03-FA16-4737-9D33-B48244B77F5E}.png",
+    "runtime_notes": "Bands/structure observed in viewport consistent with filled 3D field"
+  },
+  "next_steps": [
+    "VOL_0003: Compute ray marcher through density",
+    "VOL_0004: Temporal accumulation and camera jitter",
+    "VOL_0005: Empty-space skipping via occupancy grid"
+  ]
+}
+
+
