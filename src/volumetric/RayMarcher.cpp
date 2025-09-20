@@ -29,6 +29,8 @@ struct VolumeConstants {
     XMFLOAT2 screenSize;
     float time;
     float exposure;
+    uint32_t debugMode; // VOL_0003A
+    XMFLOAT3 pad;       // padding
 };
 
 RayMarcher::RayMarcher() {
@@ -246,6 +248,7 @@ void RayMarcher::March(ComPtr<ID3D12GraphicsCommandList4> cmdList,
         volumeData->screenSize = m_params.screenSize;
         volumeData->time = time;
         volumeData->exposure = m_params.exposure;
+        volumeData->debugMode = m_debugMode; // VOL_0003A
 
         m_volumeConstantBuffer->Unmap(0, nullptr);
     }
@@ -269,9 +272,15 @@ void RayMarcher::March(ComPtr<ID3D12GraphicsCommandList4> cmdList,
     // Bind HDR UAV
     cmdList->SetComputeRootDescriptorTable(3, hdrUav);
 
-    // Bind sampler
-    ID3D12DescriptorHeap* heaps[] = { m_samplerHeap.Get() };
-    cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+    // Bind descriptor heaps: CBV/SRV/UAV heap (from allocator) + sampler heap
+    ID3D12DescriptorHeap* heaps[] = { m_descriptorHeap ? m_descriptorHeap->GetHeap() : nullptr, m_samplerHeap.Get() };
+    if (heaps[0]) {
+        cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+    } else {
+        // Fallback: bind only sampler heap if global heap missing
+        ID3D12DescriptorHeap* sHeaps[] = { m_samplerHeap.Get() };
+        cmdList->SetDescriptorHeaps(_countof(sHeaps), sHeaps);
+    }
     cmdList->SetComputeRootDescriptorTable(4, m_samplerHeap->GetGPUDescriptorHandleForHeapStart());
 
     // Dispatch compute shader

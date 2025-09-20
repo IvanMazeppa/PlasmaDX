@@ -198,20 +198,32 @@ add_custom_command(TARGET PlasmaDX POST_BUILD
 )
 
 # Copy Agility SDK DLLs to output directory
-add_custom_command(TARGET PlasmaDX POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_SOURCE_DIR}/bin/D3D12"
-    "$<TARGET_FILE_DIR:PlasmaDX>/D3D12"
-)
+if(EXISTS "${CMAKE_SOURCE_DIR}/bin/D3D12")
+    add_custom_command(TARGET PlasmaDX POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/bin/D3D12"
+        "$<TARGET_FILE_DIR:PlasmaDX>/D3D12"
+    )
+else()
+    message(WARNING "Agility SDK not found at bin/D3D12; skipping copy")
+endif()
 
 # Copy DXC DLLs to output directory
-add_custom_command(TARGET PlasmaDX POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_SOURCE_DIR}/bin/dxcompiler.dll"
-    "$<TARGET_FILE_DIR:PlasmaDX>/dxcompiler.dll"
-)
-add_custom_command(TARGET PlasmaDX POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_SOURCE_DIR}/bin/dxil.dll"
-    "$<TARGET_FILE_DIR:PlasmaDX>/dxil.dll"
-)
+if(EXISTS "${CMAKE_SOURCE_DIR}/bin/dxcompiler.dll")
+    add_custom_command(TARGET PlasmaDX POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/bin/dxcompiler.dll"
+        "$<TARGET_FILE_DIR:PlasmaDX>/dxcompiler.dll"
+    )
+else()
+    message(WARNING "dxcompiler.dll not found; skipping copy")
+endif()
+if(EXISTS "${CMAKE_SOURCE_DIR}/bin/dxil.dll")
+    add_custom_command(TARGET PlasmaDX POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/bin/dxil.dll"
+        "$<TARGET_FILE_DIR:PlasmaDX>/dxil.dll"
+    )
+else()
+    message(WARNING "dxil.dll not found; skipping copy")
+endif()

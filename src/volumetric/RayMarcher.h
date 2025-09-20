@@ -56,6 +56,11 @@ public:
         m_params.screenSize.y = height;
     }
 
+    // VOL_0003A: Debug modes (0=Off, 1=RayDir, 2=Bounds)
+    void SetDebugMode(uint32_t mode) { m_debugMode = mode % 3u; }
+    void CycleDebugMode() { m_debugMode = (m_debugMode + 1u) % 3u; }
+    uint32_t GetDebugMode() const { return m_debugMode; }
+
     const RayMarcherParams& GetParams() const { return m_params; }
 
 private:
@@ -94,6 +99,9 @@ private:
     // Camera jitter for TAA
     float m_jitterX = 0.0f;
     float m_jitterY = 0.0f;
+
+    // VOL_0003A
+    uint32_t m_debugMode = 0u;
 
 public:
     // Temporal accumulation controls

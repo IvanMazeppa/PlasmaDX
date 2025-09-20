@@ -27,6 +27,10 @@ cbuffer VolumeConstants : register(b1) {
     float2 g_screenSize;     // Screen resolution
     float g_time;            // Animation time
     float g_exposure;        // HDR exposure control
+    // VOL_0003A: Debug mode controls
+    // 0 = Off, 1 = RayDir visualization, 2 = Bounds/AABB visualization
+    uint g_debugMode;
+    float3 g_debugPad; // padding for 16-byte alignment
 };
 
 // Trilinear sampling of density volume
@@ -94,9 +98,32 @@ void main(uint3 id : SV_DispatchThreadID) {
     float3 rayOrigin = nearPoint.xyz;
     float3 rayDir = normalize(farPoint.xyz - nearPoint.xyz);
 
+    // VOL_0003A: Ray direction visualization
+    if (g_debugMode == 1) {
+        float3 col = 0.5 + 0.5 * normalize(rayDir);
+        g_hdrTarget[id.xy] = float4(col, 1.0);
+        return;
+    }
+
     // Intersect ray with volume AABB
     float tNear, tFar;
-    if (!IntersectAABB(rayOrigin, rayDir, g_volumeMin, g_volumeMax, tNear, tFar)) {
+    bool hit = IntersectAABB(rayOrigin, rayDir, g_volumeMin, g_volumeMax, tNear, tFar);
+
+    // VOL_0003A: Bounds/AABB visualization
+    if (g_debugMode == 2) {
+        if (!hit) {
+            // Miss: magenta
+            g_hdrTarget[id.xy] = float4(1.0, 0.0, 1.0, 1.0);
+            return;
+        }
+        // Hit: distinguish inside vs outside start
+        tNear = max(tNear, 0.0);
+        float3 col = (tNear == 0.0) ? float3(1.0, 1.0, 0.0) : float3(0.0, 1.0, 0.0); // yellow if inside, green if outside
+        g_hdrTarget[id.xy] = float4(col, 1.0);
+        return;
+    }
+
+    if (!hit) {
         // Ray misses volume - output transparent
         g_hdrTarget[id.xy] = float4(0, 0, 0, 0);
         return;

@@ -74,10 +74,13 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		case VK_F4:  // Toggle debug slice vs ray marching (VOL_0003)
 			{
-				static bool useRayMarching = true;
-				useRayMarching = !useRayMarching;
-				LOGI(useRayMarching ? "F4: Ray marching enabled" : "F4: Debug slice enabled");
-				// TODO: Implement toggle in render loop
+				if (g_appInstance->m_rayMarcher) {
+					g_appInstance->m_rayMarcher->CycleDebugMode();
+					uint32_t mode = g_appInstance->m_rayMarcher->GetDebugMode();
+					if (mode == 0) LOGI("F4: DebugMode=Off (Ray March)");
+					else if (mode == 1) LOGI("F4: DebugMode=RayDir");
+					else if (mode == 2) LOGI("F4: DebugMode=Bounds");
+				}
 			}
 			break;
 		case '1':  // Decrease density scale
