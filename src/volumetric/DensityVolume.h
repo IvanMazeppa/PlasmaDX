@@ -4,6 +4,7 @@
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <DirectXMath.h>
 
 using Microsoft::WRL::ComPtr;
 
@@ -25,6 +26,9 @@ public:
     void Shutdown();
 
     void FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, float time);
+    // VOL_0003B: Fill with analytic sphere baseline
+    void FillAnalyticSphere(ComPtr<ID3D12GraphicsCommandList4> cmdList,
+                            DirectX::XMFLOAT3 centerUVW, float radiusUVW, float densityValue);
     void DebugSlice(ComPtr<ID3D12GraphicsCommandList4> cmdList, ComPtr<ID3D12Resource> hdrTarget,
                    D3D12_GPU_DESCRIPTOR_HANDLE hdrUav, uint32_t sliceZ);
 

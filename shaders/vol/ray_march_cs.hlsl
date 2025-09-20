@@ -27,8 +27,8 @@ cbuffer VolumeConstants : register(b1) {
     float2 g_screenSize;     // Screen resolution
     float g_time;            // Animation time
     float g_exposure;        // HDR exposure control
-    // VOL_0003A: Debug mode controls
-    // 0 = Off, 1 = RayDir visualization, 2 = Bounds/AABB visualization
+    // VOL_0003A/B: Debug mode controls
+    // 0 = Off, 1 = RayDir visualization, 2 = Bounds/AABB visualization, 3 = Density probe (single sample at entry)
     uint g_debugMode;
     float3 g_debugPad; // padding for 16-byte alignment
 };
@@ -131,6 +131,14 @@ void main(uint3 id : SV_DispatchThreadID) {
 
     // Ensure we start at or inside the volume
     tNear = max(tNear, 0.0);
+
+    // VOL_0003B: Density probe mode — single sample at entry point for grayscale debug
+    if (g_debugMode == 3) {
+        float3 entryPos = rayOrigin + rayDir * tNear;
+        float d = SampleDensity(entryPos);
+        g_hdrTarget[id.xy] = float4(d.xxx, 1.0);
+        return;
+    }
 
     // Ray marching with Beer-Lambert absorption
     float3 accumulatedLight = float3(0, 0, 0);

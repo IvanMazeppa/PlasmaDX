@@ -115,7 +115,8 @@ bool DensityVolume::CreateRootSignatures(ComPtr<ID3D12Device5> device) {
 
         CD3DX12_ROOT_PARAMETER1 rootParams[2];
         rootParams[0].InitAsDescriptorTable(1, &uavRange);
-        rootParams[1].InitAsConstants(4, 0); // time, scale, center.x, center.y
+        // Increase constants to 8 to support sphere params (cx,cy,cz,radius,density,pad,pad,pad)
+        rootParams[1].InitAsConstants(8, 0);
 
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
         rootSigDesc.Init_1_1(_countof(rootParams), rootParams, 0, nullptr,
@@ -331,6 +332,80 @@ void DensityVolume::FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, flo
     cmdList->Dispatch(groups, groups, groups);
 
     // UAV barrier to ensure writes complete
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = m_densityTexture.Get();
+    cmdList->ResourceBarrier(1, &barrier);
+}
+
+void DensityVolume::FillAnalyticSphere(ComPtr<ID3D12GraphicsCommandList4> cmdList,
+                                       DirectX::XMFLOAT3 centerUVW, float radiusUVW, float densityValue) {
+    // Ensure UAV state for writing density
+    if (m_currentState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
+        TransitionToUAV(cmdList);
+    }
+
+    // Load or reuse a sphere fill PSO: reusing m_fillPSO and m_fillRootSig by pointing to new shader if needed.
+    // For simplicity, reuse the existing fill root signature (UAV + 4 constants) which matches our needs.
+
+    // Attempt to load sphere shader DXIL
+    std::vector<uint8_t> sphereShader;
+    {
+        std::vector<std::string> possiblePaths = {
+            "shaders/vol/density_fill_sphere.dxil",
+            "shaders/density_fill_sphere.dxil",
+            "../shaders/vol/density_fill_sphere.dxil"
+        };
+        std::ifstream file;
+        for (const auto& path : possiblePaths) {
+            file.open(path, std::ios::binary | std::ios::ate);
+            if (file.is_open()) {
+                size_t sz = file.tellg();
+                sphereShader.resize(sz);
+                file.seekg(0);
+                file.read((char*)sphereShader.data(), sz);
+                LOGI(std::string("Found density_fill_sphere.dxil at: ") + path);
+                break;
+            }
+        }
+    }
+
+    // If not found, fallback to existing procedural fill
+    if (sphereShader.empty()) {
+        LOGW("density_fill_sphere.dxil not found; falling back to FillAnalytic");
+        FillAnalytic(cmdList, 0.0f);
+        return;
+    }
+
+    // Create a temporary PSO for sphere fill
+    ComPtr<ID3D12PipelineState> spherePSO;
+    {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_fillRootSig.Get();
+        psoDesc.CS.pShaderBytecode = sphereShader.data();
+        psoDesc.CS.BytecodeLength = sphereShader.size();
+        // CreateComputePipelineState requires device; reuse m_densityTexture device via GetDevice
+        ComPtr<ID3D12Device> dev;
+        m_densityTexture->GetDevice(IID_PPV_ARGS(&dev));
+        HRESULT hr = dev->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&spherePSO));
+        if (FAILED(hr)) {
+            LOGE("Failed to create sphere fill PSO");
+            return;
+        }
+    }
+
+    // Dispatch sphere fill
+    cmdList->SetComputeRootSignature(m_fillRootSig.Get());
+    cmdList->SetPipelineState(spherePSO.Get());
+    cmdList->SetComputeRootDescriptorTable(0, m_uavGpu);
+    // Pack constants: center.x, center.y, center.z, radius, densityValue, pad
+    float constants[8] = { centerUVW.x, centerUVW.y, centerUVW.z, radiusUVW, densityValue, 0.0f, 0.0f, 0.0f };
+    cmdList->SetComputeRoot32BitConstants(1, 8, constants, 0);
+
+    uint32_t groups = (m_dimension + 7) / 8;
+    cmdList->Dispatch(groups, groups, groups);
+
+    // UAV barrier to ensure writes visible to SRV readers
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     barrier.UAV.pResource = m_densityTexture.Get();

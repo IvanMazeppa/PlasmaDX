@@ -72,7 +72,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("F3: Density volume preset changed");
 			}
 			break;
-		case VK_F4:  // Toggle debug slice vs ray marching (VOL_0003)
+		case VK_F4:  // VOL_0003A/B: Cycle marcher debug modes (Off->RayDir->Bounds->Probe)
 			{
 				if (g_appInstance->m_rayMarcher) {
 					g_appInstance->m_rayMarcher->CycleDebugMode();
@@ -80,6 +80,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 					if (mode == 0) LOGI("F4: DebugMode=Off (Ray March)");
 					else if (mode == 1) LOGI("F4: DebugMode=RayDir");
 					else if (mode == 2) LOGI("F4: DebugMode=Bounds");
+					else if (mode == 3) LOGI("F4: DebugMode=DensityProbe");
 				}
 			}
 			break;
