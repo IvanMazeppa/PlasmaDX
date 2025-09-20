@@ -105,3 +105,6 @@ Despite successful density texture filling, the user still reports the same visi
 - This issue prevents progression to VOL_0004 (temporal accumulation) and subsequent features
 
 The fundamental ray marching pipeline is functional (no crashes, proper resource states), but the visual output suggests either sampling or accumulation problems in the compute shader implementation.
+
+## Directory Guardrail
+**CRITICAL**: Claude Code sessions must always start in `/mnt/d/Users/dilli/AndroidStudioProjects/PlasmaDX`, not PlasmaVulkan. PlasmaVulkan has been shelved.

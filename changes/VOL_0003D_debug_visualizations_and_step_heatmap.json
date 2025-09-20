@@ -1,0 +1,33 @@
+{
+  "id": "VOL_0003D",
+  "title": "Debug visualizations: raydir, density sample, step-count heatmap",
+  "rationale": "Add direct visual modes to diagnose the marcher: direction visualization, single-sample density, and per-pixel step count heatmap to confirm empty-space skipping effects later.",
+  "dependencies": ["VOL_0003", "VOL_0005"],
+  "scope": {
+    "files": [
+      "shaders/vol/ray_march_cs.hlsl",
+      "src/volumetric/RayMarcher.cpp"
+    ]
+  },
+  "deliverables": [
+    "Keybinds: toggle RayDir, DensitySample, StepHeatmap",
+    "Optional UAV counter buffer to accumulate step counts (or per-pixel)"
+  ],
+  "implementation": [
+    "Use mode enum in CB to select output; avoid branching divergence where possible",
+    "For heatmap, map [0..maxSteps] → color ramp; clamp and gamma for visibility"
+  ],
+  "acceptance": [
+    "Heatmap changes when step presets change",
+    "DensitySample reflects analytic sphere distinctly",
+    "No perf regression when modes are disabled"
+  ],
+  "test_plan": [
+    "Toggle each mode and capture PIX; verify CB changes and UAV/SRV usage",
+    "Compare with VOL_0005 once implemented to see reduced steps"
+  ],
+  "mcp_references": [
+    { "query": "D3D12_RESOURCE_BARRIER", "source": "search_all_sources" },
+    { "query": "D3D12_DESCRIPTOR_RANGE1", "source": "search_all_sources" }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "VOL_0003B",
+  "title": "Density probe view + analytic sphere baseline",
+  "rationale": "Even with correct rays, the density field may be too sparse/complex. Add a grayscale probe view of raw density and a simple analytic sphere fill to isolate issues.",
+  "dependencies": ["VOL_0002", "VOL_0003"],
+  "scope": {
+    "files": [
+      "shaders/vol/ray_march_cs.hlsl",
+      "shaders/vol/density_fill_analytic_sphere.hlsl",
+      "src/volumetric/DensityVolume.h",
+      "src/volumetric/DensityVolume.cpp"
+    ]
+  },
+  "deliverables": [
+    "Debug mode: output single-sample density at entry point as grayscale",
+    "Add DensityVolume::FillAnalyticSphere(center, radius, density) compute and invoke before march",
+    "Keybind to toggle probe vs marcher output; log mode"
+  ],
+  "implementation": [
+    "Implement compute shader to fill a sphere in the 3D texture (write float density)",
+    "In CS marcher, if 'Probe' mode is on, sample density at first step only and output grayscale",
+    "Ensure proper UAV→SRV barriers between fill and probe and march"
+  ],
+  "acceptance": [
+    "Probe shows a clear circular silhouette matching sphere when camera intersects volume",
+    "Switching to marcher yields a coherent attenuated shape with Beer–Lambert",
+    "Logs confirm analyticsphere dispatch and successful barriers"
+  ],
+  "test_plan": [
+    "Capture PIX around analytic fill, verify dispatch and UAV barrier",
+    "Compare probe vs marcher views: probe establishes visibility of density data"
+  ],
+  "mcp_references": [
+    { "query": "D3D12_RESOURCE_BARRIER", "source": "search_all_sources" },
+    { "query": "D3D12_DESCRIPTOR_RANGE1", "source": "search_all_sources" }
+  ]
+}
