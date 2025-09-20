@@ -1,0 +1,40 @@
+{
+  "timestamp": "2025-09-20T07:53:45.879312",
+  "original_file": "/workspace/workflow_claude/test_document.md",
+  "analysis": {
+    "content_type": "API Documentation",
+    "key_components": [
+      "This document describes the architecture for our microservices-based API system.",
+      "## Services",
+      "- User Service: Handles user authentication and profile management",
+      "- Order Service: Manages order processing and fulfillment",
+      "- Payment Service: Processes payments and billing",
+      "- Notification Service: Sends notifications via email and SMS",
+      "- Microservices architecture with service boundaries",
+      "- Factory pattern for service creation",
+      "- Horizontal scaling of services",
+      "- Load balancing across service instances"
+    ],
+    "architectural_patterns": [
+      "Microservices Architecture",
+      "Repository Pattern",
+      "Factory Pattern",
+      "Observer Pattern"
+    ],
+    "potential_issues": [
+      "Scalability concerns mentioned"
+    ],
+    "complexity_score": "Low"
+  },
+  "architectural_guidance": [
+    "Consider implementing proper API versioning and documentation standards",
+    "Ensure proper error handling and response formats",
+    "Ensure proper service boundaries and communication protocols"
+  ],
+  "recommendations": [
+    "Address identified architectural concerns",
+    "Implement comprehensive documentation and testing",
+    "Consider code review and architectural review processes"
+  ],
+  "status": "completed"
+}
