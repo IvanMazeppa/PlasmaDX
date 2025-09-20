@@ -4,6 +4,7 @@
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <algorithm>
 #include <DirectXMath.h>
 
 using Microsoft::WRL::ComPtr;
@@ -81,4 +82,23 @@ private:
 
     // Frame counter for logging
     uint32_t m_frameCounter = 0;
+
+    // Temporal accumulation (VOL_0004)
+    ComPtr<ID3D12Resource> m_historyTexture;
+    uint32_t m_historyUavIndex = UINT_MAX;
+    uint32_t m_historySrvIndex = UINT_MAX;
+    bool m_temporalEnabled = true;
+    float m_temporalAlpha = 0.1f;  // Blend factor: 0.1 = 10% current, 90% history
+    uint32_t m_frameIndex = 0;
+
+    // Camera jitter for TAA
+    float m_jitterX = 0.0f;
+    float m_jitterY = 0.0f;
+
+public:
+    // Temporal accumulation controls
+    void SetTemporalEnabled(bool enabled) { m_temporalEnabled = enabled; }
+    void ResetHistory() { m_frameIndex = 0; }
+    bool IsTemporalEnabled() const { return m_temporalEnabled; }
+    void SetTemporalBlendFactor(float alpha) { m_temporalAlpha = std::max(0.01f, std::min(1.0f, alpha)); }
 };

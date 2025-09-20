@@ -13,13 +13,14 @@ python src/agents/technique_agent_runner.py --mode single --verbose
 REM Check if the command was successful
 if %ERRORLEVEL% EQU 0 (
     echo Technique discovery completed successfully
-    echo Check findings/technique_knowledge_base.json for results
+    echo Check agent/AdvancedTechniqueWebSearches/technique_knowledge_base.json for results
 ) else (
     echo Technique discovery failed with error code %ERRORLEVEL%
     echo Check logs/technique_agent.log for details
 )
 
 pause
+
 
 
 

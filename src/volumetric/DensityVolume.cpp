@@ -179,9 +179,27 @@ bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
 
     // Load density_fill.dxil
     {
-        std::ifstream file("shaders/density_fill.dxil", std::ios::binary | std::ios::ate);
+        // Try multiple possible paths
+        std::vector<std::string> possiblePaths = {
+            "shaders/density_fill.dxil",
+            "../shaders/density_fill.dxil",
+            "../../shaders/density_fill.dxil"
+        };
+
+        std::ifstream file;
+        std::string usedPath;
+
+        for (const auto& path : possiblePaths) {
+            file.open(path, std::ios::binary | std::ios::ate);
+            if (file.is_open()) {
+                usedPath = path;
+                LOGI("Found density_fill.dxil at: " + path);
+                break;
+            }
+        }
+
         if (!file.is_open()) {
-            LOGW("density_fill.dxil not found, density volume will use fallback");
+            LOGW("density_fill.dxil not found in any expected location, density volume will use fallback");
             return true; // Non-fatal, we can still run
         }
         size_t size = file.tellg();
@@ -192,9 +210,26 @@ bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
 
     // Load density_slice.dxil
     {
-        std::ifstream file("shaders/density_slice.dxil", std::ios::binary | std::ios::ate);
+        std::vector<std::string> possiblePaths = {
+            "shaders/density_slice.dxil",
+            "../shaders/density_slice.dxil",
+            "../../shaders/density_slice.dxil"
+        };
+
+        std::ifstream file;
+        std::string usedPath;
+
+        for (const auto& path : possiblePaths) {
+            file.open(path, std::ios::binary | std::ios::ate);
+            if (file.is_open()) {
+                usedPath = path;
+                LOGI("Found density_slice.dxil at: " + path);
+                break;
+            }
+        }
+
         if (!file.is_open()) {
-            LOGW("density_slice.dxil not found, debug slice disabled");
+            LOGW("density_slice.dxil not found in any expected location, debug slice disabled");
             // Continue without slice shader
         } else {
             size_t size = file.tellg();
@@ -213,9 +248,10 @@ bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
 
         HRESULT hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_fillPSO));
         if (FAILED(hr)) {
-            LOGE("Failed to create fill PSO");
+            LOGE("Failed to create fill PSO, hr=0x" + std::to_string(hr));
             return false;
         }
+        LOGI("Successfully created density fill PSO");
     }
 
     // Create slice PSO
@@ -227,9 +263,10 @@ bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
 
         HRESULT hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_slicePSO));
         if (FAILED(hr)) {
-            LOGE("Failed to create slice PSO");
+            LOGE("Failed to create slice PSO, hr=0x" + std::to_string(hr));
             return false;
         }
+        LOGI("Successfully created density slice PSO");
     }
 
     LOGI("DensityVolume pipelines created successfully");
@@ -256,15 +293,17 @@ void DensityVolume::Shutdown() {
 }
 
 void DensityVolume::FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, float time) {
+    // Debug the early return condition
+    if (++m_frameCounter % 120 == 0) {
+        LOGI("DensityVolume::FillAnalytic called - PSO:" + std::string(m_fillPSO ? "OK" : "NULL") +
+             " RootSig:" + std::string(m_fillRootSig ? "OK" : "NULL") +
+             " Texture:" + std::string(m_densityTexture ? "OK" : "NULL"));
+    }
+
     if (!m_fillPSO || !m_fillRootSig || !m_densityTexture) {
         // For now, just ensure UAV state
         if (m_currentState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
             TransitionToUAV(cmdList);
-        }
-
-        // Log heartbeat every ~60 frames
-        if (++m_frameCounter % 60 == 0) {
-            LOGI("DensityVolume heartbeat");
         }
         return;
     }
@@ -272,6 +311,11 @@ void DensityVolume::FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, flo
     // Ensure UAV state
     if (m_currentState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
         TransitionToUAV(cmdList);
+    }
+
+    // Log density fill dispatch every 2 seconds
+    if (m_frameCounter % 120 == 0) {
+        LOGI("DensityVolume: Dispatching density fill compute shader");
     }
 
     cmdList->SetComputeRootSignature(m_fillRootSig.Get());

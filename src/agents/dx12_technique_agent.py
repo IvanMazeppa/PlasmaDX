@@ -56,9 +56,13 @@ class ProjectContext:
 class DX12TechniqueAgent:
     """Background agent for discovering and cataloging DX12/DXR techniques"""
     
-    def __init__(self, knowledge_base_path: str = "findings/technique_knowledge_base.json"):
+    def __init__(self, knowledge_base_path: str = "agent/AdvancedTechniqueWebSearches/technique_knowledge_base.json"):
         self.knowledge_base_path = Path(knowledge_base_path)
-        self.knowledge_base_path.parent.mkdir(exist_ok=True)
+        self.knowledge_base_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Document numbering system
+        self.document_counter = 1
+        self.discovery_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Project context for relevance scoring
         self.project_context = ProjectContext(
@@ -370,8 +374,15 @@ class DX12TechniqueAgent:
     def save_knowledge_base(self):
         """Save the knowledge base to disk"""
         try:
+            # Create numbered knowledge base file
+            kb_number = f"KB_{self.document_counter:03d}"
+            kb_path = Path(f"agent/AdvancedTechniqueWebSearches/{kb_number}_KNOWLEDGE_BASE_{self.discovery_session_id}.json")
+            self.document_counter += 1
+            
             data = {
                 "metadata": {
+                    "document_id": kb_number,
+                    "session_id": self.discovery_session_id,
                     "last_updated": datetime.now().isoformat(),
                     "total_techniques": len(self.techniques),
                     "project_context": asdict(self.project_context)
@@ -380,10 +391,14 @@ class DX12TechniqueAgent:
                 "discovery_history": self.discovery_history[-100:]  # Keep last 100 entries
             }
             
+            with open(kb_path, 'w') as f:
+                json.dump(data, f, indent=2)
+                
+            # Also save to the main knowledge base path for compatibility
             with open(self.knowledge_base_path, 'w') as f:
                 json.dump(data, f, indent=2)
                 
-            logger.info(f"Knowledge base saved to {self.knowledge_base_path}")
+            logger.info(f"Knowledge base saved to {kb_path}")
             
         except Exception as e:
             logger.error(f"Error saving knowledge base: {e}")
@@ -410,7 +425,9 @@ class DX12TechniqueAgent:
 
     def generate_technique_report(self):
         """Generate a human-readable technique report"""
-        report_path = Path("findings/technique_discovery_report.md")
+        report_number = f"TECH_{self.document_counter:03d}"
+        report_path = Path(f"agent/AdvancedTechniqueWebSearches/{report_number}_TECHNIQUE_DISCOVERY_REPORT_{self.discovery_session_id}.md")
+        self.document_counter += 1
         
         try:
             with open(report_path, 'w') as f:
@@ -491,6 +508,131 @@ class DX12TechniqueAgent:
         scored_techniques.sort(key=lambda x: x[0], reverse=True)
         return [t[1] for t in scored_techniques[:limit]]
 
+    def create_discovery_summary(self, new_techniques: List[TechniqueEntry]):
+        """Create a discovery summary document"""
+        summary_number = f"SUM_{self.document_counter:03d}"
+        summary_path = Path(f"agent/AdvancedTechniqueWebSearches/{summary_number}_DISCOVERY_SUMMARY_{self.discovery_session_id}.md")
+        self.document_counter += 1
+        
+        try:
+            with open(summary_path, 'w') as f:
+                f.write(f"# Discovery Summary - Session {self.discovery_session_id}\n\n")
+                f.write(f"**Document ID**: {summary_number}\n")
+                f.write(f"**Generated**: {datetime.now().isoformat()}\n")
+                f.write(f"**Techniques Discovered**: {len(new_techniques)}\n\n")
+                
+                if new_techniques:
+                    f.write("## New Techniques Found\n\n")
+                    for i, technique in enumerate(new_techniques, 1):
+                        f.write(f"### {i}. {technique.name}\n")
+                        f.write(f"**Category**: {technique.category}\n")
+                        f.write(f"**Relevance**: {technique.relevance_score:.2f}\n")
+                        f.write(f"**Description**: {technique.description}\n\n")
+                        
+                        if technique.project_applications:
+                            f.write("**Project Applications**:\n")
+                            for app in technique.project_applications:
+                                f.write(f"- {app}\n")
+                            f.write("\n")
+                        
+                        if technique.tags:
+                            f.write(f"**Tags**: {', '.join(technique.tags)}\n\n")
+                        
+                        f.write("---\n\n")
+                else:
+                    f.write("No new techniques discovered in this session.\n")
+                
+                f.write("## Session Statistics\n\n")
+                f.write(f"- **Total Techniques in Knowledge Base**: {len(self.techniques)}\n")
+                f.write(f"- **High Relevance Techniques**: {len([t for t in self.techniques.values() if t.relevance_score >= 0.8])}\n")
+                f.write(f"- **Discovery Session ID**: {self.discovery_session_id}\n")
+            
+            logger.info(f"Discovery summary created: {summary_path}")
+            return summary_path
+            
+        except Exception as e:
+            logger.error(f"Error creating discovery summary: {e}")
+            return None
+
+    def create_technique_analysis(self, technique: TechniqueEntry):
+        """Create a detailed analysis document for a specific technique"""
+        analysis_number = f"ANA_{self.document_counter:03d}"
+        safe_name = technique.name.replace(" ", "_").replace(":", "_").replace("/", "_")
+        analysis_path = Path(f"agent/AdvancedTechniqueWebSearches/{analysis_number}_TECHNIQUE_ANALYSIS_{safe_name}_{self.discovery_session_id}.md")
+        self.document_counter += 1
+        
+        try:
+            with open(analysis_path, 'w') as f:
+                f.write(f"# Technique Analysis: {technique.name}\n\n")
+                f.write(f"**Document ID**: {analysis_number}\n")
+                f.write(f"**Generated**: {datetime.now().isoformat()}\n")
+                f.write(f"**Session ID**: {self.discovery_session_id}\n\n")
+                
+                f.write("## Overview\n\n")
+                f.write(f"**Name**: {technique.name}\n")
+                f.write(f"**Category**: {technique.category}\n")
+                f.write(f"**Relevance Score**: {technique.relevance_score:.2f}\n")
+                f.write(f"**Discovery Date**: {technique.discovery_date}\n\n")
+                
+                f.write("## Description\n\n")
+                f.write(f"{technique.description}\n\n")
+                
+                if technique.project_applications:
+                    f.write("## Project Applications\n\n")
+                    for i, app in enumerate(technique.project_applications, 1):
+                        f.write(f"{i}. {app}\n")
+                    f.write("\n")
+                
+                if technique.api_references:
+                    f.write("## API References\n\n")
+                    for ref in technique.api_references:
+                        f.write(f"- `{ref}`\n")
+                    f.write("\n")
+                
+                if technique.shader_stages:
+                    f.write("## Shader Stages\n\n")
+                    for stage in technique.shader_stages:
+                        f.write(f"- {stage}\n")
+                    f.write("\n")
+                
+                if technique.tags:
+                    f.write("## Tags\n\n")
+                    for tag in technique.tags:
+                        f.write(f"- {tag}\n")
+                    f.write("\n")
+                
+                if technique.examples:
+                    f.write("## Usage Examples\n\n")
+                    for i, example in enumerate(technique.examples, 1):
+                        f.write(f"{i}. {example}\n")
+                    f.write("\n")
+                
+                f.write("## Implementation Notes\n\n")
+                f.write("### Relevance to PlasmaDX\n")
+                if technique.relevance_score >= 0.9:
+                    f.write("**HIGH PRIORITY** - This technique is highly relevant to the current PlasmaDX implementation.\n\n")
+                elif technique.relevance_score >= 0.7:
+                    f.write("**MEDIUM PRIORITY** - This technique may be useful for future enhancements.\n\n")
+                else:
+                    f.write("**LOW PRIORITY** - This technique has limited relevance to current project needs.\n\n")
+                
+                f.write("### Recommended Next Steps\n")
+                if "volumetric" in technique.description.lower() or "density" in technique.description.lower():
+                    f.write("- Consider for VOL_0002-0005 volumetric rendering implementation\n")
+                if "dxr" in technique.category.lower() or "ray" in technique.description.lower():
+                    f.write("- Evaluate for DXR_0025 DXR integration\n")
+                if "barrier" in technique.description.lower() or "synchronization" in technique.description.lower():
+                    f.write("- Review for performance optimization in current pipeline\n")
+                if "compute" in technique.description.lower():
+                    f.write("- Assess for particle simulation and density grid generation\n")
+            
+            logger.info(f"Technique analysis created: {analysis_path}")
+            return analysis_path
+            
+        except Exception as e:
+            logger.error(f"Error creating technique analysis: {e}")
+            return None
+
     def run_discovery_cycle(self, mcp_client):
         """Run a single discovery cycle"""
         logger.info("Starting discovery cycle")
@@ -500,6 +642,14 @@ class DX12TechniqueAgent:
             new_techniques = self.discover_techniques_from_mcp(mcp_client)
             
             if new_techniques:
+                # Create discovery summary
+                self.create_discovery_summary(new_techniques)
+                
+                # Create detailed analysis for high-relevance techniques
+                for technique in new_techniques:
+                    if technique.relevance_score >= 0.8:
+                        self.create_technique_analysis(technique)
+                
                 self.update_knowledge_base(new_techniques)
                 logger.info(f"Discovery cycle completed: {len(new_techniques)} new techniques")
             else:
@@ -529,6 +679,7 @@ if __name__ == "__main__":
     # agent = DX12TechniqueAgent()
     # agent.run_discovery_cycle(mcp_client)
     pass
+
 
 
 

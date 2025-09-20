@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2025-09-20T05:51:43.008447",
+    "last_updated": "2025-09-20T08:20:10.572949",
     "total_techniques": 2,
     "project_context": {
       "current_features": [
@@ -47,8 +47,8 @@
       "shader_stages": [
         "raygen"
       ],
-      "discovery_date": "2025-09-20T05:51:43.005447",
-      "last_updated": "2025-09-20T05:51:43.008447",
+      "discovery_date": "2025-09-20T08:20:10.570949",
+      "last_updated": "2025-09-20T08:20:10.572949",
       "tags": [
         "acceleration structure",
         "ray marching"
@@ -67,8 +67,8 @@
         "D3D12_RESOURCE_BARRIER"
       ],
       "shader_stages": [],
-      "discovery_date": "2025-09-20T05:51:43.007447",
-      "last_updated": "2025-09-20T05:51:43.007447",
+      "discovery_date": "2025-09-20T08:20:10.571949",
+      "last_updated": "2025-09-20T08:20:10.571949",
       "tags": [
         "barrier synchronization",
         "synchronization"
@@ -81,6 +81,8 @@
   },
   "discovery_history": [
     "2025-09-20T05:51:43.008447: Core:BuildRaytracingAccelerationStructure",
-    "2025-09-20T05:51:43.008447: Core:D3D12_RESOURCE_BARRIER"
+    "2025-09-20T05:51:43.008447: Core:D3D12_RESOURCE_BARRIER",
+    "2025-09-20T08:20:10.572949: Core:BuildRaytracingAccelerationStructure",
+    "2025-09-20T08:20:10.572949: Core:D3D12_RESOURCE_BARRIER"
   ]
 }

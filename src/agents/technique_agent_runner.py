@@ -33,6 +33,10 @@ def setup_logging(verbose: bool = False):
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     
+    # Ensure agent output directory exists
+    agent_dir = Path("agent/AdvancedTechniqueWebSearches")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    
     logging.basicConfig(
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -217,6 +221,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

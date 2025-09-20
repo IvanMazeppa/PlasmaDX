@@ -152,6 +152,10 @@ set(RAYMARCH_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/raymarch.dxil")
 set(RAYMARCH_CS_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/vol/ray_march_cs.hlsl")
 set(RAYMARCH_CS_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/vol/ray_march_cs.dxil")
 
+# Compile temporal accumulation shader (VOL_0004)
+set(TEMPORAL_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/vol/temporal_accumulation_cs.hlsl")
+set(TEMPORAL_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/vol/temporal_accumulation_cs.dxil")
+
 add_custom_command(
     OUTPUT ${RAYMARCH_SHADER_OUTPUT}
     COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${RAYMARCH_SHADER_OUTPUT} ${RAYMARCH_SHADER_SOURCE}
@@ -166,6 +170,13 @@ add_custom_command(
     COMMENT "Compiling VOL_0003 ray march compute shader"
 )
 
+add_custom_command(
+    OUTPUT ${TEMPORAL_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${TEMPORAL_SHADER_OUTPUT} ${TEMPORAL_SHADER_SOURCE}
+    DEPENDS ${TEMPORAL_SHADER_SOURCE}
+    COMMENT "Compiling VOL_0004 temporal accumulation compute shader"
+)
+
 # Add shader compilation as dependency
 add_custom_target(compile_shaders DEPENDS
     ${DXR_SHADER_OUTPUT}
@@ -175,6 +186,7 @@ add_custom_target(compile_shaders DEPENDS
     ${DENSITY_SLICE_SHADER_OUTPUT}
     ${RAYMARCH_SHADER_OUTPUT}
     ${RAYMARCH_CS_SHADER_OUTPUT}
+    ${TEMPORAL_SHADER_OUTPUT}
 )
 add_dependencies(PlasmaDX compile_shaders)
 

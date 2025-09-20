@@ -1,6 +1,6 @@
 # DX12/DXR Technique Discovery Report
 
-Generated: 2025-09-20T05:51:43.010447
+Generated: 2025-09-20T08:20:10.573950
 Total Techniques: 2
 
 ## Core (2 techniques)

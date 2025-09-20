@@ -43,9 +43,9 @@ class SearchResult:
 class KnowledgeBaseManager:
     """Manages the persistent knowledge base for discovered techniques"""
     
-    def __init__(self, db_path: str = "findings/technique_knowledge_base.db"):
+    def __init__(self, db_path: str = "agent/AdvancedTechniqueWebSearches/technique_knowledge_base.db"):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(exist_ok=True)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.logger = logging.getLogger('KnowledgeBaseManager')
         
         # Initialize database
@@ -492,6 +492,7 @@ if __name__ == "__main__":
     # Test statistics
     stats = kb.get_statistics()
     print(f"Knowledge base statistics: {stats}")
+
 
 
 
