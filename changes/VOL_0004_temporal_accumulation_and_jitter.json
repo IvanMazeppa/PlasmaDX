@@ -17,7 +17,8 @@
   "acceptance_criteria": [
     "Visibly smoother image over time when accumulation is on",
     "No state mismatch warnings; clean PIX barriers",
-    "History reset works and is logged"
+    "History reset works and is logged",
+    "Companion Guide: add MCP searches for D3D12_RESOURCE_BARRIER and FLAGS"
   ]
 }
 

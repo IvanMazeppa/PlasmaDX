@@ -18,7 +18,8 @@
     "Handle WM_KEYDOWN/WM_MOUSEMOVE in WndProc and control Camera (WASD + mouselook).",
     "Bind camera CBV via SetComputeRootConstantBufferView before density/raymarch/particles dispatches.",
     "Log camera params (position, yaw/pitch) each second for validation; add PIX events.",
-    "Verify barriers remain correct; no changes to HDR transitions needed."
+    "Verify barriers remain correct; no changes to HDR transitions needed.",
+    "Companion Guide: add MCP searches for CreateConstantBufferView and D3D12_DESCRIPTOR_RANGE"
   ],
   "acceptance_criteria": [
     "Moving camera changes on-screen result (density slice/raymarch).",

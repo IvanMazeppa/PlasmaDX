@@ -33,6 +33,22 @@ public:
     // Get camera data for GPU
     const Constants& GetConstants() const { return m_constants; }
 
+    // Helper methods for volumetric rendering
+    DirectX::XMMATRIX GetViewMatrix() const { return m_constants.view; }
+    DirectX::XMMATRIX GetProjectionMatrix() const { return m_constants.proj; }
+    DirectX::XMMATRIX GetInvViewProjMatrix() const {
+        return DirectX::XMMatrixInverse(nullptr, m_constants.view * m_constants.proj);
+    }
+    DirectX::XMFLOAT3 GetPosition() const { return m_position; }
+    DirectX::XMFLOAT3 GetForward() const {
+        DirectX::XMFLOAT3 forward;
+        DirectX::XMStoreFloat3(&forward, DirectX::XMVector3Transform(
+            DirectX::XMVectorSet(0, 0, 1, 0), m_constants.viewInverse));
+        return forward;
+    }
+    float GetNearPlane() const { return m_nearPlane; }
+    float GetFarPlane() const { return m_farPlane; }
+
     // Create/update constant buffer
     bool CreateConstantBuffer(ID3D12Device* device);
     void UpdateConstantBuffer();

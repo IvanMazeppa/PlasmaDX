@@ -1,0 +1,86 @@
+{
+  "metadata": {
+    "last_updated": "2025-09-20T05:51:43.008447",
+    "total_techniques": 2,
+    "project_context": {
+      "current_features": [
+        "volumetric_rendering",
+        "particle_simulation",
+        "density_grid_generation",
+        "compute_ray_marching",
+        "hdr_pipeline",
+        "temporal_accumulation"
+      ],
+      "upcoming_features": [
+        "dxr_integration",
+        "acceleration_structures",
+        "ray_traced_shadows",
+        "empty_space_skipping",
+        "advanced_scattering"
+      ],
+      "technical_priorities": [
+        "performance_optimization",
+        "memory_management",
+        "shader_efficiency",
+        "barrier_optimization"
+      ],
+      "known_issues": [
+        "dxr_pipeline_creation",
+        "resource_barriers",
+        "descriptor_management"
+      ]
+    }
+  },
+  "techniques": {
+    "Core:BuildRaytracingAccelerationStructure": {
+      "name": "BuildRaytracingAccelerationStructure",
+      "category": "Core",
+      "description": "Builds acceleration structures for raytracing",
+      "relevance_score": 1.0,
+      "project_applications": [
+        "Ray marching through volumetric data",
+        "Empty space skipping optimization"
+      ],
+      "api_references": [
+        "BuildRaytracingAccelerationStructure"
+      ],
+      "shader_stages": [
+        "raygen"
+      ],
+      "discovery_date": "2025-09-20T05:51:43.005447",
+      "last_updated": "2025-09-20T05:51:43.008447",
+      "tags": [
+        "acceleration structure",
+        "ray marching"
+      ],
+      "examples": []
+    },
+    "Core:D3D12_RESOURCE_BARRIER": {
+      "name": "D3D12_RESOURCE_BARRIER",
+      "category": "Core",
+      "description": "Synchronizes access to resources between GPU operations",
+      "relevance_score": 0.8800000000000001,
+      "project_applications": [
+        "Resource synchronization"
+      ],
+      "api_references": [
+        "D3D12_RESOURCE_BARRIER"
+      ],
+      "shader_stages": [],
+      "discovery_date": "2025-09-20T05:51:43.007447",
+      "last_updated": "2025-09-20T05:51:43.007447",
+      "tags": [
+        "barrier synchronization",
+        "synchronization"
+      ],
+      "examples": [
+        "UAV barriers before compute dispatch",
+        "SRV transitions for texture sampling"
+      ]
+    }
+  },
+  "discovery_history": [
+    "2025-09-20T05:51:43.008447: Core:BuildRaytracingAccelerationStructure",
+    "2025-09-20T05:51:43.008447: Core:D3D12_RESOURCE_BARRIER"
+  ]
+}

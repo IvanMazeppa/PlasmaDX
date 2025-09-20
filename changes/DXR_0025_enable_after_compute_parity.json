@@ -6,7 +6,8 @@
     "Implement SBT GPU buffers (raygen/miss/hit), copy identifiers",
     "Fill D3D12_DISPATCH_RAYS_DESC addresses and sizes",
     "Guard DXR with env var and log addresses before dispatch",
-    "PIX validation: ensure tables are non-null and plausible"
+    "PIX validation: ensure tables are non-null and plausible",
+    "Companion Guide: add MCP searches for D3D12_DISPATCH_RAYS_DESC and DispatchRays"
   ],
   "acceptance_criteria": [
     "DXR path renders to HDR with the same composite",

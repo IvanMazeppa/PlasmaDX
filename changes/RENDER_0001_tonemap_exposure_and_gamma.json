@@ -12,7 +12,8 @@
     "Implement Reinhard tonemap: color/(1+color) with exposure pre-scale.",
     "Apply pow(color, 1.0/gamma) before writing to swapchain.",
     "Add keyboard controls: +/- exposure, [ ] gamma; log values.",
-    "Validate with HDR patterns and volume outputs."
+    "Validate with HDR patterns and volume outputs.",
+    "Companion Guide: add MCP searches for CreateShaderResourceView and CreateUnorderedAccessView"
   ],
   "acceptance_criteria": [
     "Exposure/gamma adjustable at runtime; logged values reflect changes.",

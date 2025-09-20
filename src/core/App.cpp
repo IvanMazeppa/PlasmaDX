@@ -10,7 +10,7 @@
 #include "../utils/FileLoader.h"
 #include "../volumetric/Particles.h"
 #include "../volumetric/DensityVolume.h"
-#include "../volumetric/VolumeRenderer.h"
+#include "../volumetric/RayMarcher.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -82,24 +82,113 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			break;
 		case '1':  // Decrease density scale
 		case '2':  // Increase density scale
-			if (g_appInstance->m_volumeRenderer) {
-				auto params = g_appInstance->m_volumeRenderer->GetParams();
+			if (g_appInstance->m_rayMarcher) {
+				auto params = g_appInstance->m_rayMarcher->GetParams();
 				float newScale = params.densityScale + (wParam == '1' ? -0.1f : 0.1f);
-				newScale = max(0.1f, min(5.0f, newScale));
-				g_appInstance->m_volumeRenderer->SetDensityScale(newScale);
+				newScale = std::max(0.1f, std::min(5.0f, newScale));
+				g_appInstance->m_rayMarcher->SetDensityScale(newScale);
 				LOGI("Density scale changed");
 			}
 			break;
 		case '3':  // Decrease absorption
 		case '4':  // Increase absorption
-			if (g_appInstance->m_volumeRenderer) {
-				auto params = g_appInstance->m_volumeRenderer->GetParams();
+			if (g_appInstance->m_rayMarcher) {
+				auto params = g_appInstance->m_rayMarcher->GetParams();
 				float newAbsorption = params.absorption + (wParam == '3' ? -0.2f : 0.2f);
-				newAbsorption = max(0.1f, min(10.0f, newAbsorption));
-				g_appInstance->m_volumeRenderer->SetAbsorption(newAbsorption);
+				newAbsorption = std::max(0.1f, std::min(10.0f, newAbsorption));
+				g_appInstance->m_rayMarcher->SetAbsorption(newAbsorption);
 				LOGI("Absorption changed");
 			}
 			break;
+		case 'C':  // Cycle through colors
+			if (g_appInstance->m_rayMarcher) {
+				static int colorMode = 0;
+				colorMode = (colorMode + 1) % 5;
+				XMFLOAT3 colors[] = {
+					{1.0f, 0.9f, 0.7f},  // Warm white (default)
+					{0.4f, 0.7f, 1.0f},  // Cool blue
+					{1.0f, 0.4f, 0.2f},  // Orange/red plasma
+					{0.2f, 1.0f, 0.4f},  // Green plasma
+					{0.8f, 0.2f, 1.0f}   // Purple plasma
+				};
+				g_appInstance->m_rayMarcher->SetLightColor(colors[colorMode]);
+				LOGI("Color mode " + std::to_string(colorMode) + " selected");
+			}
+			break;
+		case VK_ADD:      // + key: Increase exposure
+		case VK_OEM_PLUS: // = key (also +)
+			if (g_appInstance->m_rayMarcher) {
+				auto params = g_appInstance->m_rayMarcher->GetParams();
+				float newExposure = std::min(20.0f, params.exposure + 1.0f);
+				g_appInstance->m_rayMarcher->SetExposure(newExposure);
+				LOGI("Exposure: " + std::to_string(newExposure));
+			}
+			break;
+		case VK_SUBTRACT:  // - key: Decrease exposure
+		case VK_OEM_MINUS: // - key
+			if (g_appInstance->m_rayMarcher) {
+				auto params = g_appInstance->m_rayMarcher->GetParams();
+				float newExposure = std::max(0.1f, params.exposure - 1.0f);
+				g_appInstance->m_rayMarcher->SetExposure(newExposure);
+				LOGI("Exposure: " + std::to_string(newExposure));
+			}
+			break;
+		// Camera movement controls (WASD + QE)
+		case 'W': case 'A': case 'S': case 'D': case 'Q': case 'E':
+			if (g_appInstance && g_appInstance->m_camera) {
+				g_appInstance->m_camera->SetKeyState((char)wParam, true);
+			}
+			break;
+		}
+	}
+
+	// Handle key release for camera movement
+	if (msg == WM_KEYUP && g_appInstance && g_appInstance->m_camera) {
+		char key = (char)wParam;
+		if (key == 'W' || key == 'A' || key == 'S' || key == 'D' || key == 'Q' || key == 'E') {
+			g_appInstance->m_camera->SetKeyState(key, false);
+		}
+	}
+
+	// Mouse input handling
+	static bool mouseCapturing = false;
+	static POINT lastMousePos = {0, 0};
+
+	if (msg == WM_LBUTTONDOWN) {
+		SetCapture(hWnd);
+		mouseCapturing = true;
+		GetCursorPos(&lastMousePos);
+	}
+	else if (msg == WM_LBUTTONUP) {
+		ReleaseCapture();
+		mouseCapturing = false;
+	}
+	else if (msg == WM_MOUSEMOVE && mouseCapturing && g_appInstance && g_appInstance->m_camera) {
+		POINT currentMousePos;
+		GetCursorPos(&currentMousePos);
+
+		int deltaX = currentMousePos.x - lastMousePos.x;
+		int deltaY = currentMousePos.y - lastMousePos.y;
+
+		// Pass mouse delta to camera for orbit/rotation
+		g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
+
+		lastMousePos = currentMousePos;
+	}
+	else if (msg == WM_MOUSEWHEEL && g_appInstance) {
+		// Mouse wheel for zoom
+		short wheelDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+		if (g_appInstance->m_camera) {
+			// Use W/S keys to simulate forward/backward movement for zoom
+			if (wheelDelta > 0) {
+				g_appInstance->m_camera->SetKeyState('W', true);
+				g_appInstance->m_camera->Update(0.1f);  // Small step for smooth zoom
+				g_appInstance->m_camera->SetKeyState('W', false);
+			} else {
+				g_appInstance->m_camera->SetKeyState('S', true);
+				g_appInstance->m_camera->Update(0.1f);
+				g_appInstance->m_camera->SetKeyState('S', false);
+			}
 		}
 	}
 
@@ -799,13 +888,13 @@ bool App::initializeDXR() {
 	}
 	LOGI("Density volume initialized");
 
-	// Initialize volume renderer (VOL_0003)
-	m_volumeRenderer = std::make_unique<VolumeRenderer>();
-	if (!m_volumeRenderer->Initialize(m_device, m_descriptorAllocator.get())) {
-		LOGE("Failed to initialize volume renderer");
+	// Initialize ray marcher (VOL_0003)
+	m_rayMarcher = std::make_unique<RayMarcher>();
+	if (!m_rayMarcher->Initialize(m_device, m_descriptorAllocator.get())) {
+		LOGE("Failed to initialize ray marcher");
 		return false;
 	}
-	LOGI("Volume renderer initialized");
+	LOGI("Ray marcher initialized");
 
 	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
@@ -1007,15 +1096,23 @@ void App::renderFrameDXR() {
 			const float deltaTime = 0.016f; // ~60 FPS delta time
 			totalTime += deltaTime;
 
+			// Update camera with deltaTime for smooth movement
+			if (m_camera) {
+				m_camera->Update(deltaTime);
+			}
+
 			m_particles->Update(m_cmdList.Get(), deltaTime, totalTime);
 
 			// VOL_0002 & VOL_0003: Fill density volume and ray march
-			if (m_densityVolume && m_volumeRenderer && m_hdrUavIndex != UINT_MAX) {
+			if (m_densityVolume && m_rayMarcher && m_hdrUavIndex != UINT_MAX) {
 				// Fill density volume with analytic field
 				m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
 
+				// Update ray marcher screen size
+				m_rayMarcher->SetScreenSize(float(m_width), float(m_height));
+
 				// VOL_0003: Ray march through the density volume
-				m_volumeRenderer->RenderVolume(m_cmdList.Get(),
+				m_rayMarcher->March(m_cmdList.Get(),
 					m_densityVolume.get(),
 					m_hdrTexture,
 					m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex),

@@ -10,7 +10,8 @@
   "acceptance_criteria": [
     "Significant reduction in average steps per pixel (logged)",
     "Image matches within tolerance with skipping on/off",
-    "No artifacts at block boundaries"
+    "No artifacts at block boundaries",
+    "Companion Guide: add MCP searches for D3D12_DESCRIPTOR_RANGE1 and FLAGS"
   ]
 }
 

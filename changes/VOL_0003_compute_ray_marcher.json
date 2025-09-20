@@ -15,7 +15,8 @@
     "Compute shader ray marches density grid with absorption only",
     "Parameters: steps, step size, density scale, exposure, light dir",
     "Writes to HDR UAV; composite to swapchain",
-    "PIX markers around dispatch and barriers"
+    "PIX markers around dispatch and barriers",
+    "Companion Guide: add MCP searches for D3D12_RESOURCE_BARRIER and D3D12_DESCRIPTOR_RANGE"
   ],
   "acceptance": [
     "Visible fog/plasma affected by parameters",
@@ -29,7 +30,8 @@
   ],
   "test_plan": [
     "Vary steps and density scale; observe output",
-    "PIX timing check; ensure predictable dispatch time"
+    "PIX timing check; ensure predictable dispatch time",
+    "Run MCP queries: search_all_sources D3D12_RESOURCE_BARRIER, D3D12_DESCRIPTOR_RANGE"
   ]
 }
 
