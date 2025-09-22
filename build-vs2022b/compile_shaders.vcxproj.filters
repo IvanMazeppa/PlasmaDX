@@ -13,6 +13,9 @@
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022b\CMakeFiles\8029f2aab6ba55d773b213d32f131d8a\raymarch.dxil.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022b\CMakeFiles\74b02f17792dfb1c771b925f44c6399f\density_advect_curl.dxil.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022b\CMakeFiles\74b02f17792dfb1c771b925f44c6399f\density_fill_sphere.dxil.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>

@@ -15,11 +15,19 @@ void RayGen() {
     uint3 dispatchDims = DispatchRaysDimensions();
     uint3 dispatchIdx = DispatchRaysIndex();
 
-    // Calculate UV coordinates
-    float2 uv = float2(dispatchIdx.xy) / float2(dispatchDims.xy);
+    // MCP Librarian Debug: Add bounds checking and coordinate verification
+    uint2 launchIndex = dispatchIdx.xy;
+    uint2 launchDim = dispatchDims.xy;
 
-    // Create a gradient (blue to purple)
-    float4 color = float4(uv.x * 0.5, 0.2, 0.8 - uv.y * 0.4, 1.0);
+    // Debug: Color code based on position to verify coordinate system
+    float2 uv = float2(launchIndex) / float2(launchDim);
+    float4 color = float4(uv.x, uv.y, 1.0, 1.0); // Gradient from black to cyan
+
+    // Bounds check (critical for debugging)
+    if (launchIndex.x >= launchDim.x || launchIndex.y >= launchDim.y) {
+        color = float4(1.0, 0.0, 0.0, 1.0); // Red for out-of-bounds
+        return;
+    }
 
     // Trace a ray for testing (optional, can be enabled later)
     if (false) {  // Disabled for initial test
@@ -47,6 +55,6 @@ void RayGen() {
         color = payload.color;
     }
 
-    // Write to output
-    g_output[dispatchIdx.xy] = color;
+    // Write to output using proper coordinate variables
+    g_output[launchIndex] = color;
 }

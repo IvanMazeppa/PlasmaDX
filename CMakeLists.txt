@@ -83,8 +83,15 @@ target_link_libraries(PlasmaDX PRIVATE
     ${DXGI_LIB}
     ${DXGUID_LIB}
     ${D3DCOMPILER_LIB}
-    "${CMAKE_SOURCE_DIR}/lib/dxcompiler.lib"
 )
+
+# Link DXC import library only if present locally
+set(DXCOMPILER_LIB_PATH "${CMAKE_SOURCE_DIR}/lib/dxcompiler.lib")
+if(EXISTS "${DXCOMPILER_LIB_PATH}")
+    target_link_libraries(PlasmaDX PRIVATE "${DXCOMPILER_LIB_PATH}")
+else()
+    message(WARNING "dxcompiler.lib not found under lib/; skipping link")
+endif()
 
 # Output directories
 set_target_properties(PlasmaDX PROPERTIES

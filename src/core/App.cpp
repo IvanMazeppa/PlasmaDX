@@ -1230,25 +1230,19 @@ void App::renderFrameDXR() {
                     LOGI(uavMsg.str());
                     m_cmdList->SetComputeRootDescriptorTable(1, uavHandle);
 
-                    // Add UAV barrier before DispatchRays (GPT-5 recommendation from MCP research)
-                    LOGI("DXR: Adding UAV barrier before DispatchRays");
-                    D3D12_RESOURCE_BARRIER uavBarrier{};
-                    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-                    uavBarrier.UAV.pResource = m_hdrTexture.Get();
-                    m_cmdList->ResourceBarrier(1, &uavBarrier);
-
-                    // Dispatch rays with dimension verification
+                    // Dispatch rays
                     std::stringstream dispatchMsg;
                     dispatchMsg << "DXR: DispatchRays " << dispatchDesc.Width << "x" << dispatchDesc.Height;
-                    dispatchMsg << " (HDR texture: " << m_width << "x" << m_height << ")";
                     LOGI(dispatchMsg.str());
-
-                    // MCP Debug: Verify dimensions match
-                    if (dispatchDesc.Width != m_width || dispatchDesc.Height != m_height) {
-                        LOGW("DXR: Dimension mismatch detected - this could cause partial rendering!");
-                    }
                     m_cmdList->DispatchRays(&dispatchDesc);
-                    LOGI("DXR: DispatchRays completed - testing magenta raygen output");
+                    LOGI("DXR: DispatchRays completed");
+
+                    // DEBUG: Immediately after DXR, clear HDR texture to bright green to test UAV write
+                    LOGI("DXR: Clearing HDR texture to green for debug verification");
+                    D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
+                    hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                    FLOAT clearColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f }; // Bright green
+                    m_cmdList->ClearUnorderedAccessViewFloat(uavHandle, hdrUavCpuHandle, m_hdrTexture.Get(), clearColor, 0, nullptr);
                 }
             } else {
 				// APP_0003: Fallback path - clear HDR with time-varying color
