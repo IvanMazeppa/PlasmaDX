@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Warn and restore if protected files are missing after checkout
+protected_roots=("src" "shaders" "changes" "results" "pix")
+
+missing=()
+for d in "${protected_roots[@]}"; do
+  if [ ! -e "$d" ]; then missing+=("$d"); fi
+done
+
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "post-checkout: protected items missing: ${missing[*]}" >&2
+  # Try automatic restore from HEAD
+  for d in "${missing[@]}"; do
+    git restore --source=HEAD --worktree --staged -- "$d" 2>/dev/null || true
+  done
+fi
+
+exit 0
+
+

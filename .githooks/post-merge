@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# After merges, ensure protected dirs exist; attempt restore if missing
+for d in src shaders changes results pix; do
+  if [ ! -e "$d" ]; then
+    git restore --source=HEAD --worktree --staged -- "$d" 2>/dev/null || true
+  fi
+done
+
+exit 0
+
+

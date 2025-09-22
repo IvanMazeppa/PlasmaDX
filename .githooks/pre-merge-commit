@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+protected_paths=(
+  "CMakeLists.txt"
+  "CMakePresets.json"
+  "src/"
+  "shaders/"
+  "changes/"
+  "results/"
+  "pix/"
+  "tools/"
+  "third_party/"
+  "DX12_MCP_README.md"
+)
+
+deleted_files=$(git diff --cached --name-status --diff-filter=DR | awk '{print $2}')
+
+blocked=()
+for f in ${deleted_files}; do
+  for p in "${protected_paths[@]}"; do
+    case "$f" in
+      "$p"|$p*) blocked+=("$f"); break;;
+    esac
+  done
+done
+
+if [ ${#blocked[@]} -gt 0 ]; then
+  echo "Pre-merge blocked: deletions/renames of protected paths in merge." >&2
+  for b in "${blocked[@]}"; do echo "  - $b" >&2; done
+  exit 1
+fi
+
+exit 0
+
+

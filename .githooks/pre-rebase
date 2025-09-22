@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Pre-rebase: blocking rebase to prevent accidental stash/autostash by agents." >&2
+echo "If you need to rebase, run it manually after disabling agents." >&2
+exit 1
+
+

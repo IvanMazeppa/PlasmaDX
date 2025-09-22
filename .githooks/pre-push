@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+protected_paths=(
+  "CMakeLists.txt"
+  "CMakePresets.json"
+  "src/"
+  "shaders/"
+  "changes/"
+  "results/"
+  "pix/"
+  "tools/"
+  "third_party/"
+  "DX12_MCP_README.md"
+)
+
+upstream="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)"
+if [ -z "$upstream" ]; then
+  exit 0
+fi
+
+deleted_files=$(git diff --name-status --diff-filter=D "$upstream..HEAD" | awk '{print $2}')
+
+blocked=()
+for f in ${deleted_files}; do
+  for p in "${protected_paths[@]}"; do
+    case "$f" in
+      "$p"|$p*) blocked+=("$f"); break;;
+    esac
+  done
+done
+
+if [ ${#blocked[@]} -gt 0 ]; then
+  echo "Pre-push blocked: deletions of protected paths:" >&2
+  for b in "${blocked[@]}"; do echo "  - $b" >&2; done
+  exit 1
+fi
+
+exit 0
+
+
