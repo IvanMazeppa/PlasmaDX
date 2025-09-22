@@ -17,36 +17,45 @@ void RayGen() {
     // Calculate UV coordinates
     float2 uv = float2(index) / float2(dimensions);
 
-    // Setup ray for perspective projection
-    RayDesc ray;
+    // Setup simple camera ray (procedural)
     float aspectRatio = float(dimensions.x) / float(dimensions.y);
-
-    // Camera position and direction
     float2 ndc = uv * 2.0 - 1.0;
-    ndc.y = -ndc.y;  // Flip Y for screen space
+    ndc.y = -ndc.y;
+    float3 ro = float3(0, 0, -3);
+    float3 rd = normalize(float3(ndc.x * aspectRatio, ndc.y, 1.0));
 
-    ray.Origin = float3(0, 0, -3);
-    ray.Direction = normalize(float3(ndc.x * aspectRatio, ndc.y, 1.0));
-    ray.TMin = 0.001;
-    ray.TMax = 1000.0;
+    // Intersect ray with a unit box centered at origin
+    float3 bmin = float3(-1, -1, -1);
+    float3 bmax = float3( 1,  1,  1);
+    float3 invD = 1.0 / rd;
+    float3 t0 = (bmin - ro) * invD;
+    float3 t1 = (bmax - ro) * invD;
+    float3 tmin = min(t0, t1);
+    float3 tmax = max(t0, t1);
+    float tN = max(max(tmin.x, tmin.y), tmin.z);
+    float tF = min(min(tmax.x, tmax.y), tmax.z);
 
-    // Initialize payload
-    RayPayload payload;
-    payload.color = float4(uv, 0.5, 1.0);  // Default gradient
+    float3 color = float3(0,0,0);
+    if (tF >= max(tN, 0.0)) {
+        float t = max(tN, 0.0);
+        float3 p = ro + rd * t;
+        // Estimate normal by which slab contributed
+        float3 n = 0;
+        if (abs(p.x - bmin.x) < 1e-3) n = float3(-1,0,0);
+        else if (abs(p.x - bmax.x) < 1e-3) n = float3(1,0,0);
+        else if (abs(p.y - bmin.y) < 1e-3) n = float3(0,-1,0);
+        else if (abs(p.y - bmax.y) < 1e-3) n = float3(0,1,0);
+        else if (abs(p.z - bmin.z) < 1e-3) n = float3(0,0,-1);
+        else n = float3(0,0,1);
 
-    // Trace ray against scene
-    TraceRay(
-        g_scene,
-        RAY_FLAG_NONE,
-        0xFF,        // Instance mask
-        0,           // RayContributionToHitGroupIndex
-        1,           // MultiplierForGeometryContributionToHitGroupIndex
-        0,           // MissShaderIndex
-        ray,
-        payload);
+        float3 L = normalize(float3(0.3, 0.8, 0.2));
+        float diff = max(0.0, dot(n, L));
+        color = diff * float3(1.0, 0.95, 0.85);
+        // Add a subtle normal-based tint for readability
+        color *= 0.7 + 0.3 * abs(n);
+    }
 
-    // Write result to output texture
-    g_output[index] = payload.color;
+    g_output[index] = float4(color, 1.0);
 }
 
 [shader("miss")]

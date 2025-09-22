@@ -19,11 +19,20 @@ public:
 
 	D3D12_DISPATCH_RAYS_DESC GetDispatchRaysDesc(UINT width, UINT height) const;
 	ID3D12StateObjectProperties* GetPSOProperties() const { return m_psoProps.Get(); }
+	void SetPSOProperties(ID3D12StateObjectProperties* props) { m_psoProps = props; }
 
 private:
+	static UINT Align(UINT size, UINT alignment);
+
 	Microsoft::WRL::ComPtr<ID3D12Device> m_device;
 	ShaderRecord m_raygen;
 	std::vector<ShaderRecord> m_miss;
 	std::vector<ShaderRecord> m_hit;
-	Microsoft::WRL::ComPtr<ID3D12StateObjectProperties> m_psoProps; // set by caller in real impl
+	Microsoft::WRL::ComPtr<ID3D12StateObjectProperties> m_psoProps;
+
+	// Real SBT GPU resources
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_sbtBuffer;
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE m_raygenSection = {};
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE m_missSection = {};
+	D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE m_hitSection = {};
 };

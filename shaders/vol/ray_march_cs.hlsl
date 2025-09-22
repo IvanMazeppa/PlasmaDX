@@ -68,11 +68,32 @@ float3 ComputeLighting(float3 worldPos, float density) {
     }
 
     // Basic isotropic scattering phase function
-    float phase = 1.0 / (4.0 * 3.14159265);
+    const float phase = 1.0 / (4.0 * 3.14159265);
 
-    // In-scattering: light scattered toward the camera
-    float3 scattering = g_lightColor * density * phase;
+    // Self-shadowing: march toward the directional light and accumulate transmittance
+    float3 L = normalize(g_lightDirection);
 
+    float tNL, tFL;
+    bool hitL = IntersectAABB(worldPos, L, g_volumeMin, g_volumeMax, tNL, tFL);
+
+    float transL = 1.0;
+    if (hitL) {
+        // If starting inside, begin at t=epsilon; otherwise start at entry
+        float tL = max(tNL, 0.0) + 1e-3;
+        const float lightStep = max(g_stepSize * 3.0, 0.002);
+        const uint maxLightSteps = max(8u, g_maxSteps / 8u);
+
+        [loop] for (uint s = 0; s < maxLightSteps && tL < tFL && transL > 0.01; ++s) {
+            float3 pL = worldPos + L * tL;
+            float dL = SampleDensity(pL);
+            float att = exp(-dL * g_absorption * lightStep);
+            transL *= att;
+            tL += lightStep;
+        }
+    }
+
+    // In-scattering attenuated by light transmittance
+    float3 scattering = g_lightColor * density * phase * transL;
     return scattering;
 }
 

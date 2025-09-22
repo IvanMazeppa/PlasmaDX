@@ -18,8 +18,10 @@ void RayGen() {
     // Calculate UV coordinates
     float2 uv = float2(dispatchIdx.xy) / float2(dispatchDims.xy);
 
-    // Create a gradient (blue to purple)
-    float4 color = float4(uv.x * 0.5, 0.2, 0.8 - uv.y * 0.4, 1.0);
+    // Test: Distinctive green/red checkboard pattern to verify raygen is running
+    bool checkX = (dispatchIdx.x / 32) % 2 == 0;
+    bool checkY = (dispatchIdx.y / 32) % 2 == 0;
+    float4 color = (checkX ^ checkY) ? float4(0.0, 1.0, 0.0, 1.0) : float4(1.0, 0.0, 0.0, 1.0);
 
     // Trace a ray for testing (optional, can be enabled later)
     if (false) {  // Disabled for initial test

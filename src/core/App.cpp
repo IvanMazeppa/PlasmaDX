@@ -1,6 +1,7 @@
 #include "App.h"
 #include "Camera.h"
 #include "../utils/Logger.h"
+#include <sstream>
 #include "../utils/Env.h"
 #include "../utils/DescriptorHeap.h"
 #include "../dxr/ASBuilder.h"
@@ -1039,6 +1040,9 @@ void App::createShaderBindingTable() {
 		return;
 	}
 
+	// Pass PSO properties to SBT for shader identifier retrieval
+	m_sbt->SetPSOProperties(psoProps);
+
 	// Raygen
 	SBT::ShaderRecord raygenRecord;
 	raygenRecord.shaderIdentifier = psoProps->GetShaderIdentifier(L"RayGen");
@@ -1177,7 +1181,7 @@ void App::renderFrameDXR() {
 			m_cmdList->SetDescriptorHeaps(1, heaps);
 
             // APP_0003: Guard DXR dispatch behind validity checks and env override
-            bool dxrDisabled = Env::GetBool("PLASMADX_DISABLE_DXR", true); // default: compute-only
+            bool dxrDisabled = Env::GetBool("PLASMADX_DISABLE_DXR", false); // default: DXR enabled for RT lighting
             bool canDoDXR = (!dxrDisabled && m_dxrPipeline && m_dxrPipeline->GetPSO() && m_sbt && m_tlasResult);
 
             if (canDoDXR) {
@@ -1193,8 +1197,19 @@ void App::renderFrameDXR() {
                 if (!sbtValid) {
                     LOGW("DXR dispatch skipped: SBT addresses are not set (compute-only fallback)");
                 } else {
-                    m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
+                    LOGI("DXR: Starting DispatchRays with valid SBT addresses");
+
+                    // Set descriptor heaps immediately before DXR dispatch (critical for UAV access)
+                    ID3D12DescriptorHeap* dxrHeaps[] = { m_srvUavHeap.Get() };
+                    m_cmdList->SetDescriptorHeaps(1, dxrHeaps);
+                    LOGI("DXR: Reset descriptor heaps for raygen UAV access");
+
+                    // Set DXR pipeline state and root signature
                     m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
+                    m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
+
+                    // Bind TLAS (even if stub, needed for shader compilation)
+                    LOGI("DXR: Binding TLAS at GPU address");
                     m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
                     // Ensure HDR UAV is in UAV state before binding
                     if (m_hdrIsInSRVForRead) {
@@ -1208,8 +1223,26 @@ void App::renderFrameDXR() {
                         m_hdrIsInSRVForRead = false;
                     }
                     // Bind HDR UAV descriptor table (u0)
-                    m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex));
+                    LOGI("DXR: Binding HDR texture as UAV for output");
+                    D3D12_GPU_DESCRIPTOR_HANDLE uavHandle = m_descriptorAllocator->GetGPUHandle(m_hdrUavIndex);
+                    std::stringstream uavMsg;
+                    uavMsg << "DXR: UAV handle ptr=0x" << std::hex << uavHandle.ptr << ", index=" << std::dec << m_hdrUavIndex;
+                    LOGI(uavMsg.str());
+                    m_cmdList->SetComputeRootDescriptorTable(1, uavHandle);
+
+                    // Dispatch rays
+                    std::stringstream dispatchMsg;
+                    dispatchMsg << "DXR: DispatchRays " << dispatchDesc.Width << "x" << dispatchDesc.Height;
+                    LOGI(dispatchMsg.str());
                     m_cmdList->DispatchRays(&dispatchDesc);
+                    LOGI("DXR: DispatchRays completed");
+
+                    // DEBUG: Immediately after DXR, clear HDR texture to bright green to test UAV write
+                    LOGI("DXR: Clearing HDR texture to green for debug verification");
+                    D3D12_CPU_DESCRIPTOR_HANDLE hdrUavCpuHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
+                    hdrUavCpuHandle.ptr += m_hdrUavIndex * m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                    FLOAT clearColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f }; // Bright green
+                    m_cmdList->ClearUnorderedAccessViewFloat(uavHandle, hdrUavCpuHandle, m_hdrTexture.Get(), clearColor, 0, nullptr);
                 }
             } else {
 				// APP_0003: Fallback path - clear HDR with time-varying color
