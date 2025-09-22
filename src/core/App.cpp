@@ -1107,23 +1107,27 @@ void App::renderFrameDXR() {
 
 			m_particles->Update(m_cmdList.Get(), deltaTime, totalTime);
 
-            // VOL_0002 & VOL_0003: Fill density volume and ray march
+            // VOL_0002 & VOL_0003 & VOL_0004: Density generation (analytic or curl-advect) and ray march
 			if (m_densityVolume && m_rayMarcher && m_hdrUavIndex != UINT_MAX) {
-				// Fill density volume with analytic field (or sphere baseline when enabled)
-				{
-					int useSphere = Env::GetInt("PLASMADX_FILL_SPHERE", 0);
-					static bool s_sphereFilled = false;
-					if (useSphere != 0) {
-						// Fill the analytic sphere once to avoid per-frame PSO creation
-						if (!s_sphereFilled) {
-							m_densityVolume->FillAnalyticSphere(
-								m_cmdList.Get(), DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f), 0.30f, 1.0f);
-							s_sphereFilled = true;
-						}
-					} else {
-						m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
-					}
-				}
+                // Choose density update path
+                int useCurl = Env::GetInt("PLASMADX_USE_CURL", 1); // default ON
+                if (useCurl != 0) {
+                    // VOL_0004: curl-advection ping-pong
+                    m_densityVolume->AdvectCurl(m_cmdList.Get(), deltaTime, totalTime);
+                } else {
+                    // Analytic fill or sphere baseline once
+                    int useSphere = Env::GetInt("PLASMADX_FILL_SPHERE", 0);
+                    static bool s_sphereFilled = false;
+                    if (useSphere != 0) {
+                        if (!s_sphereFilled) {
+                            m_densityVolume->FillAnalyticSphere(
+                                m_cmdList.Get(), DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f), 0.30f, 1.0f);
+                            s_sphereFilled = true;
+                        }
+                    } else {
+                        m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
+                    }
+                }
 
 				// Ensure density is in SRV state for sampling during ray march
 				m_densityVolume->TransitionToSRV(m_cmdList.Get());

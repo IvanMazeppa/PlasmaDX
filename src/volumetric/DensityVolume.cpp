@@ -6,11 +6,13 @@
 #include <cmath>
 #include <fstream>
 #include <vector>
+#include <cstring>
 
 DensityVolume::DensityVolume()
     : m_currentPreset(VolumePreset::Medium)
     , m_dimension(128)
-    , m_currentState(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+    , m_stateA(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+    , m_stateB(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
     , m_frameCounter(0) {
 }
 
@@ -23,7 +25,7 @@ bool DensityVolume::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* des
     m_currentPreset = preset;
     m_dimension = static_cast<uint32_t>(preset);
 
-    // Create 3D texture with UAV support
+    // Create two 3D textures (A and B) with UAV support (ping-pong)
     D3D12_RESOURCE_DESC desc = {};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
     desc.Width = m_dimension;
@@ -43,17 +45,32 @@ bool DensityVolume::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* des
         &heapProps,
         D3D12_HEAP_FLAG_NONE,
         &desc,
-        m_currentState,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         nullptr,
-        IID_PPV_ARGS(&m_densityTexture)
+        IID_PPV_ARGS(&m_densityA)
     );
 
     if (FAILED(hr)) {
-        LOGE("Failed to create density volume texture");
+        LOGE("Failed to create density volume texture A");
         return false;
     }
 
-    m_densityTexture->SetName(L"DensityVolume");
+    hr = device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &desc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_densityB)
+    );
+
+    if (FAILED(hr)) {
+        LOGE("Failed to create density volume texture B");
+        return false;
+    }
+
+    m_densityA->SetName(L"DensityVolumeA");
+    m_densityB->SetName(L"DensityVolumeB");
 
     // Allocate descriptors
     if (!m_descriptorHeap) {
@@ -61,18 +78,26 @@ bool DensityVolume::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* des
         return false;
     }
 
-    m_srvIndex = m_descriptorHeap->Allocate();
-    m_uavIndex = m_descriptorHeap->Allocate();
+    m_srvIndexA = m_descriptorHeap->Allocate();
+    m_uavIndexA = m_descriptorHeap->Allocate();
+    m_srvIndexB = m_descriptorHeap->Allocate();
+    m_uavIndexB = m_descriptorHeap->Allocate();
 
-    if (m_srvIndex == UINT32_MAX || m_uavIndex == UINT32_MAX) {
-        LOGE("Failed to allocate descriptors for density volume");
+    if (m_srvIndexA == UINT32_MAX || m_uavIndexA == UINT32_MAX ||
+        m_srvIndexB == UINT32_MAX || m_uavIndexB == UINT32_MAX) {
+        LOGE("Failed to allocate descriptors for density volume A/B");
         return false;
     }
 
-    m_srvCpu = m_descriptorHeap->GetCPUHandle(m_srvIndex);
-    m_srvGpu = m_descriptorHeap->GetGPUHandle(m_srvIndex);
-    m_uavCpu = m_descriptorHeap->GetCPUHandle(m_uavIndex);
-    m_uavGpu = m_descriptorHeap->GetGPUHandle(m_uavIndex);
+    m_srvCpuA = m_descriptorHeap->GetCPUHandle(m_srvIndexA);
+    m_srvGpuA = m_descriptorHeap->GetGPUHandle(m_srvIndexA);
+    m_uavCpuA = m_descriptorHeap->GetCPUHandle(m_uavIndexA);
+    m_uavGpuA = m_descriptorHeap->GetGPUHandle(m_uavIndexA);
+
+    m_srvCpuB = m_descriptorHeap->GetCPUHandle(m_srvIndexB);
+    m_srvGpuB = m_descriptorHeap->GetGPUHandle(m_srvIndexB);
+    m_uavCpuB = m_descriptorHeap->GetCPUHandle(m_uavIndexB);
+    m_uavGpuB = m_descriptorHeap->GetGPUHandle(m_uavIndexB);
 
     // Create SRV
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -80,7 +105,8 @@ bool DensityVolume::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* des
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc.Texture3D.MipLevels = 1;
-    device->CreateShaderResourceView(m_densityTexture.Get(), &srvDesc, m_srvCpu);
+    device->CreateShaderResourceView(m_densityA.Get(), &srvDesc, m_srvCpuA);
+    device->CreateShaderResourceView(m_densityB.Get(), &srvDesc, m_srvCpuB);
 
     // Create UAV
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
@@ -89,7 +115,8 @@ bool DensityVolume::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* des
     uavDesc.Texture3D.MipSlice = 0;
     uavDesc.Texture3D.FirstWSlice = 0;
     uavDesc.Texture3D.WSize = m_dimension;
-    device->CreateUnorderedAccessView(m_densityTexture.Get(), nullptr, &uavDesc, m_uavCpu);
+    device->CreateUnorderedAccessView(m_densityA.Get(), nullptr, &uavDesc, m_uavCpuA);
+    device->CreateUnorderedAccessView(m_densityB.Get(), nullptr, &uavDesc, m_uavCpuB);
 
     LOGI("DensityVolume created successfully");
 
@@ -171,12 +198,44 @@ bool DensityVolume::CreateRootSignatures(ComPtr<ID3D12Device5> device) {
         }
     }
 
+    // Advect root signature: SRV (t0), UAV (u0), constants b0
+    {
+        CD3DX12_DESCRIPTOR_RANGE1 srvRange, uavRange;
+        srvRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+        uavRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);
+
+        CD3DX12_ROOT_PARAMETER1 rootParams[3];
+        rootParams[0].InitAsDescriptorTable(1, &srvRange);
+        rootParams[1].InitAsDescriptorTable(1, &uavRange);
+        rootParams[2].InitAsConstantBufferView(0);
+
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
+        rootSigDesc.Init_1_1(_countof(rootParams), rootParams, 0, nullptr,
+            D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
+        ComPtr<ID3DBlob> signature, error;
+        if (FAILED(D3DX12SerializeVersionedRootSignature(&rootSigDesc,
+            D3D_ROOT_SIGNATURE_VERSION_1_1, &signature, &error))) {
+            if (error) {
+                LOGE("Advect root signature error");
+            }
+            return false;
+        }
+
+        HRESULT hr = device->CreateRootSignature(0, signature->GetBufferPointer(),
+            signature->GetBufferSize(), IID_PPV_ARGS(&m_advectRootSig));
+        if (FAILED(hr)) {
+            LOGE("Failed to create advect root signature");
+            return false;
+        }
+    }
+
     return true;
 }
 
 bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
     // Load compiled shaders
-    std::vector<uint8_t> fillShader, sliceShader;
+    std::vector<uint8_t> fillShader, sliceShader, advectShader;
 
     // Load density_fill.dxil
     {
@@ -207,6 +266,28 @@ bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
         fillShader.resize(size);
         file.seekg(0);
         file.read((char*)fillShader.data(), size);
+    }
+
+    // Load density_advect_curl.dxil (VOL_0004)
+    {
+        std::vector<std::string> possiblePaths = {
+            "shaders/vol/density_advect_curl.dxil",
+            "../shaders/vol/density_advect_curl.dxil",
+            "../../shaders/vol/density_advect_curl.dxil"
+        };
+
+        std::ifstream file;
+        for (const auto& path : possiblePaths) {
+            file.open(path, std::ios::binary | std::ios::ate);
+            if (file.is_open()) {
+                size_t size = file.tellg();
+                advectShader.resize(size);
+                file.seekg(0);
+                file.read((char*)advectShader.data(), size);
+                LOGI(std::string("Found density_advect_curl.dxil at: ") + path);
+                break;
+            }
+        }
     }
 
     // Load density_slice.dxil
@@ -270,49 +351,71 @@ bool DensityVolume::CreatePipelines(ComPtr<ID3D12Device5> device) {
         LOGI("Successfully created density slice PSO");
     }
 
+    // Create advect PSO
+    if (!advectShader.empty()) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_advectRootSig.Get();
+        psoDesc.CS.pShaderBytecode = advectShader.data();
+        psoDesc.CS.BytecodeLength = advectShader.size();
+
+        HRESULT hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_advectPSO));
+        if (FAILED(hr)) {
+            LOGE("Failed to create advect PSO, hr=0x" + std::to_string(hr));
+            return false;
+        }
+        LOGI("Successfully created curl-advect PSO");
+
+        // Create constant buffer for advect params
+        D3D12_HEAP_PROPERTIES heapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(256);
+        hr = device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+                                             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_advectCB));
+        if (FAILED(hr)) {
+            LOGE("Failed to create advect constant buffer");
+            return false;
+        }
+    }
+
     LOGI("DensityVolume pipelines created successfully");
     return true;
 }
 
 void DensityVolume::Shutdown() {
     if (m_descriptorHeap) {
-        if (m_srvIndex != UINT32_MAX) {
-            m_descriptorHeap->Free(m_srvIndex);
-            m_srvIndex = UINT32_MAX;
-        }
-        if (m_uavIndex != UINT32_MAX) {
-            m_descriptorHeap->Free(m_uavIndex);
-            m_uavIndex = UINT32_MAX;
-        }
+        if (m_srvIndexA != UINT32_MAX) { m_descriptorHeap->Free(m_srvIndexA); m_srvIndexA = UINT32_MAX; }
+        if (m_uavIndexA != UINT32_MAX) { m_descriptorHeap->Free(m_uavIndexA); m_uavIndexA = UINT32_MAX; }
+        if (m_srvIndexB != UINT32_MAX) { m_descriptorHeap->Free(m_srvIndexB); m_srvIndexB = UINT32_MAX; }
+        if (m_uavIndexB != UINT32_MAX) { m_descriptorHeap->Free(m_uavIndexB); m_uavIndexB = UINT32_MAX; }
     }
 
+    m_advectCB.Reset();
+    m_advectPSO.Reset();
+    m_advectRootSig.Reset();
     m_slicePSO.Reset();
     m_fillPSO.Reset();
     m_sliceRootSig.Reset();
     m_fillRootSig.Reset();
-    m_densityTexture.Reset();
+    m_densityA.Reset();
+    m_densityB.Reset();
 }
 
 void DensityVolume::FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, float time) {
     // Debug the early return condition
     if (++m_frameCounter % 120 == 0) {
+        const bool hasTex = (m_densityA || m_densityB);
         LOGI("DensityVolume::FillAnalytic called - PSO:" + std::string(m_fillPSO ? "OK" : "NULL") +
              " RootSig:" + std::string(m_fillRootSig ? "OK" : "NULL") +
-             " Texture:" + std::string(m_densityTexture ? "OK" : "NULL"));
+             " Textures:" + std::string(hasTex ? "OK" : "NULL"));
     }
 
-    if (!m_fillPSO || !m_fillRootSig || !m_densityTexture) {
+    if (!m_fillPSO || !m_fillRootSig || (!m_densityA && !m_densityB)) {
         // For now, just ensure UAV state
-        if (m_currentState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-            TransitionToUAV(cmdList);
-        }
         return;
     }
 
-    // Ensure UAV state
-    if (m_currentState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-        TransitionToUAV(cmdList);
-    }
+    // Ensure UAV state for both A and B
+    transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     // Log density fill dispatch every 2 seconds
     if (m_frameCounter % 120 == 0) {
@@ -321,7 +424,6 @@ void DensityVolume::FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, flo
 
     cmdList->SetComputeRootSignature(m_fillRootSig.Get());
     cmdList->SetPipelineState(m_fillPSO.Get());
-    cmdList->SetComputeRootDescriptorTable(0, m_uavGpu);
 
     // Set constants: time, scale, center
     float constants[4] = { time, 0.5f, 0.5f, 0.5f };
@@ -329,21 +431,25 @@ void DensityVolume::FillAnalytic(ComPtr<ID3D12GraphicsCommandList4> cmdList, flo
 
     // Dispatch with 8x8x8 thread groups
     uint32_t groups = (m_dimension + 7) / 8;
+    // Fill A
+    cmdList->SetComputeRootDescriptorTable(0, m_uavGpuA);
+    cmdList->Dispatch(groups, groups, groups);
+    // Fill B
+    cmdList->SetComputeRootDescriptorTable(0, m_uavGpuB);
     cmdList->Dispatch(groups, groups, groups);
 
     // UAV barrier to ensure writes complete
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barrier.UAV.pResource = m_densityTexture.Get();
-    cmdList->ResourceBarrier(1, &barrier);
+    D3D12_RESOURCE_BARRIER barriers[2] = {};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; barriers[0].UAV.pResource = m_densityA.Get();
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; barriers[1].UAV.pResource = m_densityB.Get();
+    cmdList->ResourceBarrier(2, barriers);
 }
 
 void DensityVolume::FillAnalyticSphere(ComPtr<ID3D12GraphicsCommandList4> cmdList,
                                        DirectX::XMFLOAT3 centerUVW, float radiusUVW, float densityValue) {
-    // Ensure UAV state for writing density
-    if (m_currentState != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-        TransitionToUAV(cmdList);
-    }
+    // Ensure UAV state for writing density to both A and B
+    transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     // Load or reuse a sphere fill PSO: reusing m_fillPSO and m_fillRootSig by pointing to new shader if needed.
     // For simplicity, reuse the existing fill root signature (UAV + 4 constants) which matches our needs.
@@ -386,7 +492,7 @@ void DensityVolume::FillAnalyticSphere(ComPtr<ID3D12GraphicsCommandList4> cmdLis
         psoDesc.CS.BytecodeLength = sphereShader.size();
         // CreateComputePipelineState requires device; reuse m_densityTexture device via GetDevice
         ComPtr<ID3D12Device> dev;
-        m_densityTexture->GetDevice(IID_PPV_ARGS(&dev));
+        m_densityA->GetDevice(IID_PPV_ARGS(&dev));
         HRESULT hr = dev->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&spherePSO));
         if (FAILED(hr)) {
             LOGE("Failed to create sphere fill PSO");
@@ -394,43 +500,44 @@ void DensityVolume::FillAnalyticSphere(ComPtr<ID3D12GraphicsCommandList4> cmdLis
         }
     }
 
-    // Dispatch sphere fill
+    // Dispatch sphere fill to both A and B
     cmdList->SetComputeRootSignature(m_fillRootSig.Get());
     cmdList->SetPipelineState(spherePSO.Get());
-    cmdList->SetComputeRootDescriptorTable(0, m_uavGpu);
     // Pack constants: center.x, center.y, center.z, radius, densityValue, pad
     float constants[8] = { centerUVW.x, centerUVW.y, centerUVW.z, radiusUVW, densityValue, 0.0f, 0.0f, 0.0f };
     cmdList->SetComputeRoot32BitConstants(1, 8, constants, 0);
 
     uint32_t groups = (m_dimension + 7) / 8;
+    // A
+    cmdList->SetComputeRootDescriptorTable(0, m_uavGpuA);
+    cmdList->Dispatch(groups, groups, groups);
+    // B
+    cmdList->SetComputeRootDescriptorTable(0, m_uavGpuB);
     cmdList->Dispatch(groups, groups, groups);
 
     // UAV barrier to ensure writes visible to SRV readers
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    barrier.UAV.pResource = m_densityTexture.Get();
-    cmdList->ResourceBarrier(1, &barrier);
+    D3D12_RESOURCE_BARRIER barriers[2] = {};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; barriers[0].UAV.pResource = m_densityA.Get();
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; barriers[1].UAV.pResource = m_densityB.Get();
+    cmdList->ResourceBarrier(2, barriers);
 }
 
 void DensityVolume::DebugSlice(ComPtr<ID3D12GraphicsCommandList4> cmdList,
                                ComPtr<ID3D12Resource> hdrTarget,
                                D3D12_GPU_DESCRIPTOR_HANDLE hdrUav,
                                uint32_t sliceZ) {
-    if (!m_slicePSO || !m_sliceRootSig || !m_densityTexture || !hdrTarget) {
+    if (!m_slicePSO || !m_sliceRootSig || (!m_densityA && !m_densityB) || !hdrTarget) {
         return;
     }
 
     // Transition density to SRV for reading
-    if (m_currentState != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE &&
-        m_currentState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
-        TransitionToSRV(cmdList);
-    }
+    TransitionToSRV(cmdList);
 
     // Note: HDR target should already be in UAV state from caller
 
     cmdList->SetComputeRootSignature(m_sliceRootSig.Get());
     cmdList->SetPipelineState(m_slicePSO.Get());
-    cmdList->SetComputeRootDescriptorTable(0, m_srvGpu);
+    cmdList->SetComputeRootDescriptorTable(0, GetSRV());
     cmdList->SetComputeRootDescriptorTable(1, hdrUav);
 
     uint32_t constants[2] = { sliceZ, m_dimension };
@@ -441,36 +548,19 @@ void DensityVolume::DebugSlice(ComPtr<ID3D12GraphicsCommandList4> cmdList,
 }
 
 void DensityVolume::TransitionToSRV(ComPtr<ID3D12GraphicsCommandList4> cmdList) {
-    if (m_currentState == D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE ||
-        m_currentState == D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) {
-        return;
+    if (m_srcIsA) {
+        transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    } else {
+        transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
-
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = m_densityTexture.Get();
-    barrier.Transition.StateBefore = m_currentState;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
-    cmdList->ResourceBarrier(1, &barrier);
-    m_currentState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 }
 
 void DensityVolume::TransitionToUAV(ComPtr<ID3D12GraphicsCommandList4> cmdList) {
-    if (m_currentState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-        return;
+    if (m_srcIsA) {
+        transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    } else {
+        transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
-
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = m_densityTexture.Get();
-    barrier.Transition.StateBefore = m_currentState;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
-    cmdList->ResourceBarrier(1, &barrier);
-    m_currentState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 }
 
 void DensityVolume::CyclePreset() {
@@ -494,4 +584,87 @@ void DensityVolume::CyclePreset() {
 bool DensityVolume::RecreateVolume(ComPtr<ID3D12Device5> device, DescriptorHeap* descriptorHeap) {
     Shutdown();
     return Initialize(device, descriptorHeap, m_currentPreset);
+}
+
+void DensityVolume::transitionResource(ComPtr<ID3D12GraphicsCommandList4> cmdList,
+                                       ID3D12Resource* resource,
+                                       D3D12_RESOURCE_STATES& currentState,
+                                       D3D12_RESOURCE_STATES targetState) {
+    if (!resource || currentState == targetState) return;
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = resource;
+    barrier.Transition.StateBefore = currentState;
+    barrier.Transition.StateAfter = targetState;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    cmdList->ResourceBarrier(1, &barrier);
+    currentState = targetState;
+}
+
+void DensityVolume::AdvectCurl(ComPtr<ID3D12GraphicsCommandList4> cmdList,
+                               float deltaTime,
+                               float timeSeconds) {
+    if (!m_advectPSO || !m_advectRootSig || !m_advectCB) return;
+
+    // Set heaps
+    if (!m_descriptorHeap) return;
+    ID3D12DescriptorHeap* heaps[] = { m_descriptorHeap->GetHeap() };
+    cmdList->SetDescriptorHeaps(1, heaps);
+
+    // Determine src/dst
+    ID3D12Resource* src = m_srcIsA ? m_densityA.Get() : m_densityB.Get();
+    ID3D12Resource* dst = m_srcIsA ? m_densityB.Get() : m_densityA.Get();
+    D3D12_GPU_DESCRIPTOR_HANDLE srcSrv = m_srcIsA ? m_srvGpuA : m_srvGpuB;
+    D3D12_GPU_DESCRIPTOR_HANDLE dstUav = m_srcIsA ? m_uavGpuB : m_uavGpuA;
+
+    // Transitions: src → SRV, dst → UAV
+    if (m_srcIsA) {
+        transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    } else {
+        transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
+    // Update constants
+    struct AdvectParamsCB {
+        float deltaTime;
+        float time;
+        float curlSpeed;
+        float flowScale;
+        float decay;
+        float injectRate;
+        float injectRadius;
+        float gridDim;
+    } params;
+    params.deltaTime = deltaTime;
+    params.time = timeSeconds;
+    params.curlSpeed = 0.6f;
+    params.flowScale = 3.0f;
+    params.decay = 0.995f;
+    params.injectRate = 0.015f;
+    params.injectRadius = 0.25f;
+    params.gridDim = float(m_dimension);
+
+    void* mapped = nullptr;
+    m_advectCB->Map(0, nullptr, &mapped);
+    std::memcpy(mapped, &params, sizeof(params));
+    m_advectCB->Unmap(0, nullptr);
+
+    // Bind and dispatch
+    cmdList->SetComputeRootSignature(m_advectRootSig.Get());
+    cmdList->SetPipelineState(m_advectPSO.Get());
+    cmdList->SetComputeRootDescriptorTable(0, srcSrv);
+    cmdList->SetComputeRootDescriptorTable(1, dstUav);
+    cmdList->SetComputeRootConstantBufferView(2, m_advectCB->GetGPUVirtualAddress());
+
+    uint32_t groups = (m_dimension + 7) / 8;
+    cmdList->Dispatch(groups, groups, groups);
+
+    // UAV barrier on dst to ensure writes visible next frame
+    D3D12_RESOURCE_BARRIER uav{}; uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; uav.UAV.pResource = dst;
+    cmdList->ResourceBarrier(1, &uav);
+
+    // Swap src/dst for next frame
+    m_srcIsA = !m_srcIsA;
 }
