@@ -1,0 +1,45 @@
+[
+  {
+    "id": "VOL_0004",
+    "title": "Preset system + Curl-Advection density baseline",
+    "purpose": "Establish a visible volumetric baseline and a preset mechanism to drive parameters.",
+    "tasks": [
+      {
+        "name": "Add preset loader",
+        "desc": "Load presets/preset.json by PLASMADX_PRESET, fallback to PlasmaBox defaults.",
+        "acceptance": [
+          "Env var selects preset",
+          "Missing file uses defaults without crashing",
+          "Params reachable at runtime"
+        ]
+      },
+      {
+        "name": "Allocate ping-pong density textures",
+        "desc": "Add secondary 3D texture + descriptors to DensityVolume; expose GetSRV/SetSRV for src/dst.",
+        "acceptance": [
+          "Two textures created with identical dims/formats",
+          "SRV/UAV transitions correct",
+          "Swap each frame"
+        ]
+      },
+      {
+        "name": "Curl-advection compute shader & PSO",
+        "desc": "Add shaders/vol/density_advect_curl.hlsl, root sig (SRV t0, UAV u0, constants), dispatch (dim+7)/8.",
+        "acceptance": [
+          "Shader compiles to DXIL",
+          "Dispatch runs without device removal",
+          "Density changes over time with inject/decay"
+        ]
+      },
+      {
+        "name": "App integration",
+        "desc": "Per-frame AdvectCurl when PLASMADX_USE_CURL=1 (default). Remove analytic fill steady-state.",
+        "acceptance": [
+          "Launching shows evolving density",
+          "Bounds/UVW/Steps debug modes work",
+          "No frame-to-frame resource state violations"
+        ]
+      }
+    ]
+  }
+]

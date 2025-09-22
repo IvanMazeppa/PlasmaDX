@@ -1109,8 +1109,24 @@ void App::renderFrameDXR() {
 
             // VOL_0002 & VOL_0003: Fill density volume and ray march
 			if (m_densityVolume && m_rayMarcher && m_hdrUavIndex != UINT_MAX) {
-				// Fill density volume with analytic field
-				m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
+				// Fill density volume with analytic field (or sphere baseline when enabled)
+				{
+					int useSphere = Env::GetInt("PLASMADX_FILL_SPHERE", 0);
+					static bool s_sphereFilled = false;
+					if (useSphere != 0) {
+						// Fill the analytic sphere once to avoid per-frame PSO creation
+						if (!s_sphereFilled) {
+							m_densityVolume->FillAnalyticSphere(
+								m_cmdList.Get(), DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f), 0.30f, 1.0f);
+							s_sphereFilled = true;
+						}
+					} else {
+						m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
+					}
+				}
+
+				// Ensure density is in SRV state for sampling during ray march
+				m_densityVolume->TransitionToSRV(m_cmdList.Get());
 
 				// Update ray marcher screen size
 				m_rayMarcher->SetScreenSize(float(m_width), float(m_height));

@@ -134,6 +134,10 @@ set(DENSITY_SLICE_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/density_slice.dxil"
 set(DENSITY_FILL_SPHERE_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/vol/density_fill_sphere.hlsl")
 set(DENSITY_FILL_SPHERE_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/vol/density_fill_sphere.dxil")
 
+# VOL_0004 curl-advection shader
+set(DENSITY_ADVECT_CURL_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/vol/density_advect_curl.hlsl")
+set(DENSITY_ADVECT_CURL_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/vol/density_advect_curl.dxil")
+
 add_custom_command(
     OUTPUT ${DENSITY_FILL_SHADER_OUTPUT}
     COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${DENSITY_FILL_SHADER_OUTPUT} ${DENSITY_FILL_SHADER_SOURCE}
@@ -153,6 +157,13 @@ add_custom_command(
     COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${DENSITY_FILL_SPHERE_SHADER_OUTPUT} ${DENSITY_FILL_SPHERE_SHADER_SOURCE}
     DEPENDS ${DENSITY_FILL_SPHERE_SHADER_SOURCE}
     COMMENT "Compiling density fill analytic sphere compute shader"
+)
+
+add_custom_command(
+    OUTPUT ${DENSITY_ADVECT_CURL_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${DENSITY_ADVECT_CURL_SHADER_OUTPUT} ${DENSITY_ADVECT_CURL_SHADER_SOURCE}
+    DEPENDS ${DENSITY_ADVECT_CURL_SHADER_SOURCE}
+    COMMENT "Compiling VOL_0004 curl-advection compute shader"
 )
 
 # Compile ray marching shader (VOL_0003)
@@ -194,6 +205,7 @@ add_custom_target(compile_shaders DEPENDS
     ${DENSITY_FILL_SHADER_OUTPUT}
     ${DENSITY_SLICE_SHADER_OUTPUT}
     ${DENSITY_FILL_SPHERE_SHADER_OUTPUT}
+    ${DENSITY_ADVECT_CURL_SHADER_OUTPUT}
     ${RAYMARCH_SHADER_OUTPUT}
     ${RAYMARCH_CS_SHADER_OUTPUT}
     ${TEMPORAL_SHADER_OUTPUT}

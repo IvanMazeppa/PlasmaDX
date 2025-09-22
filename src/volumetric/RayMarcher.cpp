@@ -259,29 +259,30 @@ void RayMarcher::March(ComPtr<ID3D12GraphicsCommandList4> cmdList,
     cmdList->SetPipelineState(m_pipelineState.Get());
     cmdList->SetComputeRootSignature(m_rootSignature.Get());
 
-    // Bind resources
+    // Bind descriptor heaps BEFORE any root descriptor tables that reference them
+    {
+        ID3D12DescriptorHeap* heaps[] = { m_descriptorHeap ? m_descriptorHeap->GetHeap() : nullptr, m_samplerHeap.Get() };
+        if (heaps[0]) {
+            cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+        } else {
+            ID3D12DescriptorHeap* sHeaps[] = { m_samplerHeap.Get() };
+            cmdList->SetDescriptorHeaps(_countof(sHeaps), sHeaps);
+        }
+    }
+
+    // Bind resources (now that heaps are set)
     cmdList->SetComputeRootConstantBufferView(0, m_cameraConstantBuffer->GetGPUVirtualAddress());
     cmdList->SetComputeRootConstantBufferView(1, m_volumeConstantBuffer->GetGPUVirtualAddress());
 
-    // Bind density SRV
+    // Sampler heap descriptor table
+    cmdList->SetComputeRootDescriptorTable(4, m_samplerHeap->GetGPUDescriptorHandleForHeapStart());
+
+    // Density SRV and HDR UAV
     if (densityVolume) {
         D3D12_GPU_DESCRIPTOR_HANDLE densitySrv = densityVolume->GetSRV();
         cmdList->SetComputeRootDescriptorTable(2, densitySrv);
     }
-
-    // Bind HDR UAV
     cmdList->SetComputeRootDescriptorTable(3, hdrUav);
-
-    // Bind descriptor heaps: CBV/SRV/UAV heap (from allocator) + sampler heap
-    ID3D12DescriptorHeap* heaps[] = { m_descriptorHeap ? m_descriptorHeap->GetHeap() : nullptr, m_samplerHeap.Get() };
-    if (heaps[0]) {
-        cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
-    } else {
-        // Fallback: bind only sampler heap if global heap missing
-        ID3D12DescriptorHeap* sHeaps[] = { m_samplerHeap.Get() };
-        cmdList->SetDescriptorHeaps(_countof(sHeaps), sHeaps);
-    }
-    cmdList->SetComputeRootDescriptorTable(4, m_samplerHeap->GetGPUDescriptorHandleForHeapStart());
 
     // Dispatch compute shader
     PIXBeginEvent(cmdList.Get(), PIX_COLOR(0, 255, 255), "Dispatch RayMarch");
