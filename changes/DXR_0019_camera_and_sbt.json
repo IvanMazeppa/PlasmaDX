@@ -1,0 +1,45 @@
+{
+  "id": "DXR_0019",
+  "title": "Add camera constants and SBT local root bindings",
+  "owner": "GPT-5",
+  "motivation": "We need camera control for raygen and a path to add local root parameters for future materials. This enables basic interactivity and correct ray generation.",
+  "scope": {
+    "files": [
+      "src/core/App.h",
+      "src/core/App.cpp",
+      "src/dxr/SBT.h",
+      "src/dxr/SBT.cpp",
+      "shaders/dxr/raytracing_lib.hlsl"
+    ]
+  },
+  "deliverables": [
+    "Camera constant buffer (view/proj/inv_viewproj, camera position)",
+    "Keyboard/mouse input to move camera (WASD + mouse look)",
+    "Root signature update: add CBV(b0) for camera; keep SRV/UAV bindings",
+    "SBT records include local root data where needed or use global CBV binding"
+  ],
+  "acceptance": [
+    "Moving the camera changes the output",
+    "SBT builds with non-zero record sizes and correct strides",
+    "No debug layer errors during frame or on resize"
+  ],
+  "implementation": [
+    "Add Camera struct and update-per-frame buffer with upload heap",
+    "SetComputeRootConstantBufferView for b0",
+    "Update raygen shader to compute rays from inverse view-projection",
+    "Add minimal input handling in WndProc for now"
+  ],
+  "notes": [
+    "We can keep a global CBV for v1; local roots come later for materials",
+    "Align CB size to 256 bytes as required by D3D12"
+  ],
+  "test_plan": [
+    "Move camera and verify scene changes (even if only a gradient for now)",
+    "PIX capture to verify CBV binding and SBT record sizes",
+    "Stress resize; ensure CB recreation is handled"
+  ]
+}
+
+
+
+

@@ -1,0 +1,29 @@
+{
+  "id": "DXR_0001_hello_pipeline",
+  "title": "Add minimal DXR Hello pipeline (BLAS/TLAS, PSO, SBT, DispatchRays)",
+  "purpose": "Establish a working DXR pipeline that renders a gradient via raygen/miss/hit to verify AS/SBT/PSO wiring and PIX instrumentation.",
+  "steps": [
+    { "action": "dxr_dirs", "detail": "Create src/dxr/{ASBuilder.*, Pipeline.*, SBT.*} utilities with RAII and error logging." },
+    { "action": "shaders", "detail": "Add shaders/dxr/{raygen.hlsl, miss.hlsl, closesthit.hlsl}; compile with DXC (SM6.3+)." },
+    { "action": "pso", "detail": "Create DXR state object with subobjects: DXIL lib, hit group, shader/pipeline config, global RS, (optional) local RS and associations." },
+    { "action": "sbt", "detail": "Build SBT with contiguous raygen/miss/hit sections; record sizes/strides aligned to D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT." },
+    { "action": "render", "detail": "DispatchRays directly to current backbuffer; add PIX events around AS build, SBT build, PSO creation, DispatchRays." }
+  ],
+  "acceptance": [
+    "Shows a gradient or solid color produced by raygen",
+    "PIX capture validates barriers and SBT layout (sizes/strides)",
+    "No debug layer errors"
+  ],
+  "touchpoints": [
+    "src/core/App.*",
+    "src/dxr/ASBuilder.*",
+    "src/dxr/Pipeline.*",
+    "src/dxr/SBT.*",
+    "shaders/dxr/*"
+  ],
+  "references": [
+    "DirectX Graphics Samples – D3D12RaytracingHelloWorld",
+    "Microsoft Learn – DirectX Raytracing",
+    "DirectX-Headers – d3d12.h and raytracing enums"
+  ]
+}

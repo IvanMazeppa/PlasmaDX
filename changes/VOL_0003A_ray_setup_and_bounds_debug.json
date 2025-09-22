@@ -1,0 +1,42 @@
+{
+  "id": "VOL_0003A",
+  "title": "Compute marcher: ray setup validation and bounds debug",
+  "rationale": "Reported visuals look like homogeneous fog with no coherent structure. Before tuning transport, validate ray generation from camera and volume AABB intersection. Provide an on-screen debug to prove rays and bounds are correct.",
+  "dependencies": ["CORE_0003", "VOL_0003"],
+  "scope": {
+    "files": [
+      "shaders/vol/ray_march_cs.hlsl",
+      "src/volumetric/RayMarcher.h",
+      "src/volumetric/RayMarcher.cpp",
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "Debug mode: visualize ray direction (world) mapped to RGB to validate raygen",
+    "AABB intersection debug: early-out if miss; optional overlay color when outside volume",
+    "Keybind to toggle debug modes; logging reflects current mode",
+    "PIX markers around ray setup and AABB tests"
+  ],
+  "implementation": [
+    "Generate rays from camera CBV(b0): origin, dir normalized; compute entry/exit t with volume AABB",
+    "If miss, write a distinct color and return; if hit, proceed to marcher (when not in debug)",
+    "When debug 'RayDir' is on, output normalized |dir| remapped to 0..1; skip marching",
+    "When debug 'Bounds' is on, tint pixels outside AABB and write step=0 into a UAV counter (optional)"
+  ],
+  "acceptance": [
+    "Rotating camera changes RayDir debug image predictably (no banding/inversion)",
+    "Bounds debug clearly distinguishes inside vs outside volume",
+    "No D3D12 validation errors; barriers unchanged from baseline",
+    "Toggle via keybind works and is logged"
+  ],
+  "test_plan": [
+    "Enable RayDir mode and rotate camera: verify smooth color variation matching camera rotation",
+    "Enable Bounds mode: verify box silhouette corresponds to volume AABB",
+    "PIX capture: verify constant buffers bound and no erroneous SRV/UAV states"
+  ],
+  "mcp_references": [
+    { "query": "D3D12_RESOURCE_BARRIER", "source": "search_all_sources" },
+    { "query": "D3D12_RESOURCE_STATES", "source": "search_all_sources" },
+    { "query": "D3D12_DESCRIPTOR_RANGE", "source": "search_all_sources" }
+  ]
+}

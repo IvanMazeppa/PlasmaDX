@@ -1,0 +1,37 @@
+{
+  "id": "VOL_0001",
+  "title": "Minimal GPU particles (compute) with debug HDR write",
+  "owner": "GPT-5",
+  "motivation": "Get live, data-driven visuals quickly to unblock iterative development.",
+  "scope": {
+    "files": [
+      "src/volumetric/Particles.h",
+      "src/volumetric/Particles.cpp",
+      "shaders/vol/particles_update.hlsl",
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "Structured buffer for N particles (pos.xyz, vel.xyz, life)",
+    "Compute shader updates positions each frame",
+    "Debug write to HDR to confirm pass execution (color ramp)",
+    "PIX markers around dispatch"
+  ],
+  "acceptance": [
+    "App runs showing animated HDR pattern driven by time",
+    "PIX shows dispatch with expected thread group sizes",
+    "No debug layer or validation errors"
+  ],
+  "implementation": [
+    "Create Particles module managing GPU buffers and CS dispatch",
+    "Bind constant buffer (time, dt) and UAV/SRV as needed",
+    "Integrate into frame loop before composite"
+  ],
+  "test_plan": [
+    "Run and observe time-varying output",
+    "PIX capture and check UAV writes",
+    "Stress test N from 32k to 256k"
+  ]
+}
+
+

@@ -1,0 +1,21 @@
+{
+  "id": "DXR_0015_safe_minimal_baseline",
+  "title": "Safe minimal baseline: OS D3D12 (no Agility, no DXR) to confirm swapchain path",
+  "purpose": "Prove the core Win32 + DXGI + D3D12 swapchain loop is healthy independent of Agility/DXR.",
+  "steps": [
+    { "action": "compile_flag", "detail": "Add a CMake option PLASMADX_MINIMAL_BASELINE. When ON, skip DXR init entirely and force OS D3D12." },
+    { "action": "render_clear", "detail": "In baseline mode, render a cycling color gradient only; log frames per second every 2 seconds." },
+    { "action": "doc", "detail": "Update README with instructions for toggling baseline mode to bisect issues." }
+  ],
+  "acceptance": [
+    "App runs for minutes without crash showing animated clear, proving baseline stability",
+    "Turning off baseline mode restores normal DXR path"
+  ],
+  "touchpoints": [
+    "CMakeLists.txt",
+    "src/core/App.cpp",
+    "README.md"
+  ]
+}
+
+

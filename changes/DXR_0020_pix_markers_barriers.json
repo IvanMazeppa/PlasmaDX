@@ -1,0 +1,35 @@
+{
+  "id": "DXR_0020",
+  "title": "Add PIX markers and correct HDR/DXR barriers",
+  "owner": "GPT-5",
+  "motivation": "Improve observability and correctness. PIX markers segment frame stages; explicit barriers ensure proper resource transitions for HDR composite and DXR path.",
+  "scope": {
+    "files": [
+      "src/core/App.cpp",
+      "src/core/App.h",
+      "src/renderer/Composite.cpp",
+      "src/renderer/Composite.h"
+    ]
+  },
+  "deliverables": [
+    "PIX markers: AS build, PSO create, SBT build, DXR dispatch, HDR composite, Present",
+    "Explicit barriers: HDR UAV→SRV before composite; backbuffer PRESENT→RTV and RTV→PRESENT",
+    "Helper to emit scoped PIX events (macro/wrapper)"
+  ],
+  "acceptance": [
+    "PIX timing capture shows named ranges for all major stages",
+    "No D3D12 debug errors about state mismatches",
+    "Visuals unchanged; frame stable under resize"
+  ],
+  "implementation": [
+    "Add a small RAII class or macros for PIXBeginEvent/PIXEndEvent",
+    "Surround AS build, PSO create, SBT build, DispatchRays, Composite, Present",
+    "Insert ResourceBarrier for HDR UAV→SRV before composite draw; verify swapchain transitions"
+  ],
+  "test_plan": [
+    "Run with PIX and confirm markers and state transitions",
+    "Toggle between debug layer ON/OFF; ensure no warnings about barriers"
+  ]
+}
+
+

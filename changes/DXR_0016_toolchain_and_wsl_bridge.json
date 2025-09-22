@@ -1,0 +1,22 @@
+{
+  "id": "DXR_0016_toolchain_and_wsl_bridge",
+  "title": "Toolchain sanity and WSL shader bridge (MSVC+Windows SDK; WSL DXC)",
+  "purpose": "Ensure Windows MSVC builds the app; allow WSL to compile HLSL to DXIL and drop into repo.",
+  "steps": [
+    { "action": "cmake_generator", "detail": "Document and enforce VS 2022 generator: -G 'Visual Studio 17 2022' -A x64" },
+    { "action": "dxc_windows", "detail": "Verify tools/dxc.exe works; compile shaders during build; copy dxcompiler.dll/dxil.dll next to exe" },
+    { "action": "dxc_wsl", "detail": "Add WSL instructions to compile shaders: dxc -T lib_6_3 -Fo .../raytracing_lib.dxil .../raytracing_lib.hlsl" },
+    { "action": "clion_note", "detail": "Clarify CLion can drive MSVC via CMake, but cannot use WSL gcc/clang for the app; Windows SDK needed" },
+    { "action": "pix_note", "detail": "Confirm PIX installation and recommend using Release build if debug layer causes issues" }
+  ],
+  "acceptance": [
+    "Windows build uses MSVC and runs",
+    "WSL dxc can produce .dxil that the Windows build uses",
+    "README documents both paths clearly"
+  ],
+  "touchpoints": [
+    "README.md",
+    "SETUP_ENVIRONMENT_AND_TOOLING_2025_09_15.md"
+  ]
+}
+

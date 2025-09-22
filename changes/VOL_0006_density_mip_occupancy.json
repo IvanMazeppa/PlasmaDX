@@ -1,0 +1,31 @@
+{
+  "id": "VOL_0006",
+  "title": "Density mip-chain and occupancy grid for empty-space skipping",
+  "owner": "GPT-5",
+  "motivation": "Accelerate marching via adaptive stepping informed by density hierarchy.",
+  "scope": {
+    "files": [
+      "src/volumetric/Density.h",
+      "src/volumetric/Density.cpp",
+      "shaders/vol/density_mipmap.hlsl",
+      "shaders/vol/occupancy_build.hlsl",
+      "shaders/vol/ray_march_cs.hlsl"
+    ]
+  },
+  "deliverables": [
+    "3D mip-chain generation for density",
+    "Occupancy grid (brick mask) for quick empty checks",
+    "Marcher uses larger steps in empty regions (cone/adaptive)"
+  ],
+  "acceptance": [
+    "Notable performance improvement with comparable visuals",
+    "PIX shows reduced samples in empty zones",
+    "No artifacts at brick/mip boundaries"
+  ],
+  "notes": [
+    "Beware of mip normalization; define consistent density units",
+    "Consider hysteresis to avoid flicker"
+  ]
+}
+
+

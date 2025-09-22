@@ -1,0 +1,21 @@
+{
+  "id": "DXR_0010_stub_dxr_modules",
+  "title": "Add stub DXR modules (ASBuilder, Pipeline, SBT) and wire into CMake",
+  "purpose": "Resolve compile/link issues by providing minimal class definitions used by App.cpp, enabling incremental DXR implementation.",
+  "steps": [
+    { "action": "add_files", "detail": "Create src/dxr/ASBuilder.h/.cpp with minimal CreateTriangleBLAS and BuildTLAS stubs that allocate dummy buffers and return success." },
+    { "action": "add_files", "detail": "Create src/dxr/Pipeline.h/.cpp with minimal DXR Pipeline class exposing AddDXILLibrary/AddHitGroup/SetShaderConfig/SetPipelineConfig/SetGlobalRootSignature/Create." },
+    { "action": "add_files", "detail": "Create src/dxr/SBT.h/.cpp with minimal SBT class to set raygen/miss/hit records and provide a DispatchRaysDesc." },
+    { "action": "cmake", "detail": "Update CMakeLists.txt to compile and link the new files; add include directories for src/dxr." }
+  ],
+  "acceptance": [
+    "Project compiles and links; DXR code paths compile even if not fully functional",
+    "App runs and falls back gracefully if DXR not fully set up"
+  ],
+  "touchpoints": [
+    "src/dxr/ASBuilder.*",
+    "src/dxr/Pipeline.*",
+    "src/dxr/SBT.*",
+    "CMakeLists.txt"
+  ]
+}

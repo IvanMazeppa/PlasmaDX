@@ -1,0 +1,19 @@
+{
+  "id": "DXR_0025",
+  "title": "Re-enable DXR after compute parity (SBT, descriptor tables, HDR)",
+  "summary": "Once compute ray marcher matches required quality, implement a real SBT buffer, validate descriptor table bindings, and switch DXR on with identical output.",
+  "scope": [
+    "Implement SBT GPU buffers (raygen/miss/hit), copy identifiers",
+    "Fill D3D12_DISPATCH_RAYS_DESC addresses and sizes",
+    "Guard DXR with env var and log addresses before dispatch",
+    "PIX validation: ensure tables are non-null and plausible",
+    "Companion Guide: add MCP searches for D3D12_DISPATCH_RAYS_DESC and DispatchRays"
+  ],
+  "acceptance_criteria": [
+    "DXR path renders to HDR with the same composite",
+    "No CreateStateObject or DispatchRays errors",
+    "Performance baseline recorded"
+  ]
+}
+
+

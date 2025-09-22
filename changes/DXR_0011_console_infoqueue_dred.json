@@ -1,0 +1,20 @@
+{
+  "id": "DXR_0011_console_infoqueue_dred",
+  "title": "Attach console, add DXGI InfoQueue + DRED diagnostics, wrap Execute/Present",
+  "purpose": "Surface runtime failures immediately and capture device-removed breadcrumbs, fixing silent exits.",
+  "steps": [
+    { "action": "console", "detail": "Allocate console in Debug; redirect stdout/stderr; print init banner." },
+    { "action": "infoqueue", "detail": "Enable IDXGIInfoQueue and ID3D12InfoQueue; set BreakOnSeverity for ERROR; dump messages to console on failure." },
+    { "action": "wrap_calls", "detail": "Check HRESULT from ExecuteCommandLists and Present; on failure, call checkDeviceRemoved(hr) which logs GetDeviceRemovedReason and DRED (ID3D12DeviceRemovedExtendedData2)." },
+    { "action": "pix_markers", "detail": "Add PIX events around frame begin/end to correlate crashes in captures." }
+  ],
+  "acceptance": [
+    "Console shows per-frame logs; on failure, prints DXGI/D3D12 errors and DRED summary",
+    "PIX captures show markers and failure site"
+  ],
+  "touchpoints": [
+    "src/core/App.*"
+  ]
+}
+
+

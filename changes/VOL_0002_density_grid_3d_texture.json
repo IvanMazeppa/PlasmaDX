@@ -1,0 +1,39 @@
+{
+  "id": "VOL_0002",
+  "title": "Create 3D density grid (Texture3D<float> UAV) and debug slice",
+  "summary": "Add a GPU 3D density volume with UAV write + SRV read, fill it with a simple analytic field via compute, and render a debug slice to confirm correctness.",
+  "motivation": "Content-first: establish volumetric data source to unblock ray marching and lighting.",
+  "scope": [
+    "Add Texture3D<float> density volume, default size 128^3, presets 96/128/192/256",
+    "Allocate SRV+UAV descriptors via DescriptorHeap allocator",
+    "Add compute shader density_fill.hlsl (cs_6_0) to generate simple analytic density (e.g., noisy sphere/torus)",
+    "Add optional particles_splat (deferred) hook to accumulate from particles later",
+    "Add a minimal debug pass to slice the volume (Z slice) into HDR to visually validate",
+    "Add CMake DXC compile steps and copy to output",
+    "Add logs for descriptor indices and transitions; throttle logs to avoid spam"
+  ],
+  "steps": [
+    "Resource: Create Texture3D with DXGI_FORMAT_R16_FLOAT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, initial state UAV.",
+    "Descriptors: Allocate SRV and UAV indices; create views (SRV: Texture3D, UAV: Texture3D).",
+    "Shader: density_fill.hlsl → writes to RWTexture3D<float> density; numthreads=8,8,8; inputs: time, bounds, center, scale.",
+    "Dispatch: grid = ceil(dim/8); ensure HDR is not overwritten in same frame (compute writes to density only).",
+    "Debug slice: density_slice.hlsl (optional) or reuse a simple compute to write one Z slice mapped to HDR.",
+    "Barriers: After density UAV writes, insert UAV barrier. For sampling (if preview shader reads density), transition density to SRV. Return to UAV next frame if writing again.",
+    "CMake: Add custom commands for density_fill.dxil (and density_slice.dxil if used).",
+    "Controls: F3 cycles volume presets (96/128/192/256).",
+    "Logs: On creation, print resolution + descriptor indices; on dispatch every ~60 frames, print a heartbeat."
+  ],
+  "acceptance_criteria": [
+    "On run, a visible grayscale/colored slice appears and changes with time.",
+    "Logs show density resource creation with SRV/UAV descriptor indices.",
+    "PIX capture shows correct UAV→SRV barriers before sampling; no allocator reset or device removal.",
+    "Changing preset via F3 re-creates the 3D texture and updates the debug slice accordingly."
+  ],
+  "notes": [
+    "Prefer R16_FLOAT to keep memory reasonable at 256^3.",
+    "Keep density in UAV state by default; transition to SRV only when read in the same frame.",
+    "If particles splat is not ready, the analytic field alone is sufficient for validation."
+  ]
+}
+
+

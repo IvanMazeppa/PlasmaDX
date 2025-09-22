@@ -1,0 +1,37 @@
+{
+  "id": "VOL_0003C",
+  "title": "Transport parameter sweep + exposure presets",
+  "rationale": "Parameters may be suboptimal. Provide hotkeys to sweep densityScale, absorption, stepSize, maxSteps, exposure with on-screen logging and clamp ranges.",
+  "dependencies": ["VOL_0003"],
+  "scope": {
+    "files": [
+      "src/volumetric/RayMarcher.h",
+      "src/volumetric/RayMarcher.cpp",
+      "src/renderer/Composite.cpp"
+    ]
+  },
+  "deliverables": [
+    "Keybinds: cycle step presets (64/96/128/192/256)",
+    "Keybinds: densityScale +/-; absorption +/-; exposure +/-",
+    "Frame HUD logging each second: current param set",
+    "Persist last-used set in env or config (optional)"
+  ],
+  "implementation": [
+    "Clamp and validate parameters; avoid underflow/overflow in Beer–Lambert",
+    "Expose presets via simple state machine; update CB constants for marcher and Composite",
+    "Ensure no extra barriers are introduced; keep command flow stable"
+  ],
+  "acceptance": [
+    "Sweeping parameters yields strong visual changes; coherent volume emerges",
+    "No device removal or validation warnings",
+    "PIX shows constant buffer updates and stable GPU timings"
+  ],
+  "test_plan": [
+    "Run through all step presets; record FPS and visual stability",
+    "Increase exposure and densityScale to verify structure contrast"
+  ],
+  "mcp_references": [
+    { "query": "D3D12_RESOURCE_STATES", "source": "search_all_sources" },
+    { "query": "D3D12_DESCRIPTOR_RANGE", "source": "search_all_sources" }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "DXR_0024",
+  "title": "Ensure correct HDR resource state transitions before Composite",
+  "owner": "GPT-5",
+  "motivation": "HDR is written as UAV by DXR/compute and then sampled as SRV by the Composite. We currently only insert a UAV barrier, which enforces ordering but not state. Insert explicit transitions to SRV before Composite (and back to UAV if needed).",
+  "scope": {
+    "files": [
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "After all UAV writes to HDR, transition HDR: UAV → PIX-safe SRV read",
+    "Before next frame's UAV writes, transition HDR back to UAV (if not re-created)",
+    "Backbuffer transitions remain PRESENT→RTV→PRESENT around Composite"
+  ],
+  "acceptance": [
+    "PIX shows HDR in SRV state during Composite draw",
+    "No warnings about incorrect resource state usage",
+    "Visuals are stable across frames"
+  ],
+  "implementation": [
+    "Replace the current UAV barrier with: a UAV barrier followed by a TRANSITION from D3D12_RESOURCE_STATE_UNORDERED_ACCESS to D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE",
+    "Optionally transition back to UAV after present, or at start of next frame before writes"
+  ],
+  "test_plan": [
+    "Run with PIX; validate resource states in Event Details",
+    "Enable debug layer; check for absence of resource state warnings"
+  ]
+}
+
+

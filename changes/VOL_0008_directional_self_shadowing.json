@@ -1,0 +1,30 @@
+{
+  "id": "VOL_0004",
+  "title": "Directional single-scattering with volumetric self-shadowing",
+  "owner": "GPT-5",
+  "motivation": "Introduce realistic lighting by integrating light transmittance along light rays.",
+  "scope": {
+    "files": [
+      "shaders/vol/ray_march_cs.hlsl",
+      "src/volumetric/RayMarcher.h",
+      "src/volumetric/RayMarcher.cpp"
+    ]
+  },
+  "deliverables": [
+    "HG phase function with parameter g",
+    "Light transmittance estimation via secondary march toward directional light",
+    "Parameters: sigma_a, sigma_s, g, lightDir, lightIntensity",
+    "Runtime toggles to enable/disable self-shadowing"
+  ],
+  "acceptance": [
+    "Soft shadows inside medium; lighting responds to density changes",
+    "Parameters visibly affect contrast and anisotropy",
+    "No excessive divergence; stable frame time"
+  ],
+  "notes": [
+    "Keep step counts modest initially; later add occupancy-guided skipping",
+    "Consider early-out on high transmittance loss"
+  ]
+}
+
+

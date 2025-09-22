@@ -1,0 +1,46 @@
+{
+  "id": "DXR_0018",
+  "title": "Add HDR UAV output and fullscreen composite to swapchain",
+  "owner": "GPT-5",
+  "motivation": "We need a stable path for high-precision volumetric output. Render into an HDR UAV (R16G16B16A16_FLOAT) and composite to the swapchain RT. This also decouples DXR/compute writes from presentation.",
+  "scope": {
+    "files": [
+      "src/core/App.h",
+      "src/core/App.cpp",
+      "src/renderer/Composite.h",
+      "src/renderer/Composite.cpp",
+      "shaders/fullscreen.hlsl"
+    ]
+  },
+  "deliverables": [
+    "Create size-dependent HDR texture with UAV/RTV/SRV views as needed",
+    "On resize, recreate HDR and RTVs safely",
+    "Fullscreen triangle/blit PSO to sample HDR SRV and write to backbuffer RTV",
+    "Wire DXR path to write to HDR UAV, raster fallback clears HDR and composites"
+  ],
+  "acceptance": [
+    "Application shows the same animated gradient via HDR→composite",
+    "No debug layer errors on resize or present",
+    "PIX shows UAV writes to HDR and draw call to copy to swapchain"
+  ],
+  "implementation": [
+    "Add HDR resource creation helper in App (format R16G16B16A16_FLOAT)",
+    "Add a simple Composite pass: root sig with SRV(t0) + sampler(s0)",
+    "HLSL pixel shader samples HDR and outputs to RTV",
+    "Update DXR render to write UAV = HDR when available; raster fallback clears HDR then composites"
+  ],
+  "notes": [
+    "Keep sampler linear clamp; viewport from swapchain size",
+    "Defer sRGB handling/tonemap to later (TAA phase)",
+    "Check barriers: UAV→SRV for composite; RTV→Present for swapchain"
+  ],
+  "test_plan": [
+    "Run; verify identical visuals pre/post change",
+    "Resize window multiple times; ensure no leaks and no debug messages",
+    "PIX capture to validate barriers and resource states"
+  ]
+}
+
+
+
+

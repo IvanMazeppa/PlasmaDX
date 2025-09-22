@@ -1,0 +1,35 @@
+{
+  "id": "DXR_0021",
+  "title": "Descriptor heap mini-allocator for CBV/SRV/UAV",
+  "owner": "GPT-5",
+  "motivation": "Replace hardcoded descriptor indices with a tiny allocator to avoid collisions and simplify future resource growth (HDR, volume, TLAS, samplers).",
+  "scope": {
+    "files": [
+      "src/utils/DescriptorHeap.h",
+      "src/utils/DescriptorHeap.cpp",
+      "src/core/App.h",
+      "src/core/App.cpp"
+    ]
+  },
+  "deliverables": [
+    "A fixed-size descriptor heap wrapper with allocate/free and CPU/GPU handle getters",
+    "Integration in App: allocate slots for HDR SRV/UAV and future resources",
+    "Bounds checks and logging for allocations"
+  ],
+  "acceptance": [
+    "App runs as before; descriptors are allocated via the wrapper",
+    "No index collisions; logging shows allocated indices",
+    "PIX shows correct heap bound for composite and DXR"
+  ],
+  "implementation": [
+    "Create a CBV_SRV_UAV heap with N descriptors (e.g., 64)",
+    "Simple free-list or bump allocator with optional free()",
+    "Migrate HDR SRV/UAV creation to request indices from the allocator"
+  ],
+  "test_plan": [
+    "Allocate >2 descriptors, run, and confirm handles change accordingly",
+    "Stress with recreateHDRTexture() to ensure no leaks"
+  ]
+}
+
+

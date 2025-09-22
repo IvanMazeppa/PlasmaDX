@@ -1,0 +1,25 @@
+{
+  "id": "DXR_0003_volumetric_scaffold",
+  "title": "Scaffold volumetric path: HDR UAV, 3D density texture, composite",
+  "purpose": "Lay groundwork for volumetric rendering with an HDR target and a 3D density resource, plus a debug slice and composite stage.",
+  "steps": [
+    { "action": "hdr_target", "detail": "Allocate R16G16B16A16_FLOAT UAV as intermediate HDR; add fullscreen composite to swapchain." },
+    { "action": "density3d", "detail": "Create 3D texture R16_FLOAT (SRV/UAV) with configurable dims (e.g., 192–256 cubed) and a clear pass." },
+    { "action": "debug_compute", "detail": "Add compute shader to write a test pattern into HDR and to visualize a slice of density as color." },
+    { "action": "resize", "detail": "Recreate HDR and dependent resources on resize; validate transitions in PIX." }
+  ],
+  "acceptance": [
+    "HDR composite shows test pattern",
+    "Density slice debug visible and bounds-correct",
+    "Resize-safe; no debug layer errors"
+  ],
+  "touchpoints": [
+    "src/volumetric/*",
+    "src/core/App.*",
+    "shaders/volumetric/*"
+  ],
+  "references": [
+    "Microsoft Learn – UAV and barrier usage in D3D12",
+    "DirectX Graphics Samples – Post-processing and fullscreen passes"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "DXR_0023",
+  "title": "Fix DXR global root signature: use descriptor table for UAV t/u bindings",
+  "owner": "GPT-5",
+  "motivation": "CreateStateObject fails with: 'Shader is declaring a typed UAV using a register mapped to a root descriptor UAV'. DXR's global root signature cannot map a typed texture UAV via root descriptor. We must bind g_output (u0) via a UAV descriptor table, and g_scene (t0) via an SRV descriptor or SRV table.",
+  "scope": {
+    "files": [
+      "src/core/App.cpp",
+      "src/dxr/Pipeline.cpp",
+      "shaders/dxr/raytracing_lib.hlsl"
+    ]
+  },
+  "deliverables": [
+    "Global root signature with two descriptor tables: SRV table (t0: TLAS) and UAV table (u0: output texture)",
+    "Runtime allocation of SRV (TLAS) and UAV (HDR) descriptors in a shader-visible heap and binding via SetComputeRootDescriptorTable",
+    "Pipeline::Create succeeds (no 0x80070057)",
+    "DispatchRays executes without binding errors"
+  ],
+  "acceptance": [
+    "No InfoQueue error about typed UAV root descriptor",
+    "PSO created; PSO properties non-null",
+    "PIX capture shows RayGen with descriptor tables bound"
+  ],
+  "implementation": [
+    "In App::createDXRPipeline, build a root signature with two descriptor tables: one SRV range for t0, one UAV range for u0",
+    "Create SRV for TLAS (D3D12_RAYTRACING_ACCELERATION_STRUCTURE_SRV) as needed; ensure descriptor heap has space",
+    "Before DispatchRays, set descriptor heap and root descriptor tables to the allocated SRV/UAV handles",
+    "Update SBT build if export names change (they shouldn't)"
+  ],
+  "test_plan": [
+    "Run Debug; PSO creation should succeed",
+    "Capture in PIX; verify no root-signature validation errors",
+    "Temporarily remove UAV table to reproduce error, then restore"
+  ]
+}
+
+
