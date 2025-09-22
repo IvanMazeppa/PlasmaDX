@@ -37,7 +37,13 @@ public:
     DirectX::XMMATRIX GetViewMatrix() const { return m_constants.view; }
     DirectX::XMMATRIX GetProjectionMatrix() const { return m_constants.proj; }
     DirectX::XMMATRIX GetInvViewProjMatrix() const {
-        return DirectX::XMMatrixInverse(nullptr, m_constants.view * m_constants.proj);
+        // m_constants.view/proj are stored transposed for HLSL. Recover original matrices,
+        // compute inverse(view*proj), then transpose for HLSL column-major usage.
+        using namespace DirectX;
+        XMMATRIX view = XMMatrixTranspose(m_constants.view);
+        XMMATRIX proj = XMMatrixTranspose(m_constants.proj);
+        XMMATRIX invViewProj = XMMatrixInverse(nullptr, view * proj);
+        return XMMatrixTranspose(invViewProj);
     }
     DirectX::XMFLOAT3 GetPosition() const { return m_position; }
     DirectX::XMFLOAT3 GetForward() const {

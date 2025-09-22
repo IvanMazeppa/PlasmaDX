@@ -221,9 +221,11 @@ void RayMarcher::March(ComPtr<ID3D12GraphicsCommandList4> cmdList,
         CameraConstants* cameraData;
         m_cameraConstantBuffer->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
 
-        cameraData->viewMatrix = XMMatrixTranspose(camera->GetViewMatrix());
-        cameraData->projMatrix = XMMatrixTranspose(camera->GetProjectionMatrix());
-        cameraData->invViewProjMatrix = XMMatrixTranspose(camera->GetInvViewProjMatrix());
+        // Camera matrices from Camera are already transposed for HLSL (column-major).
+        // Do NOT transpose again here, or rays will be reconstructed incorrectly.
+        cameraData->viewMatrix = camera->GetViewMatrix();
+        cameraData->projMatrix = camera->GetProjectionMatrix();
+        cameraData->invViewProjMatrix = camera->GetInvViewProjMatrix();
         cameraData->cameraPosition = camera->GetPosition();
         cameraData->nearPlane = camera->GetNearPlane();
         cameraData->cameraForward = camera->GetForward();
