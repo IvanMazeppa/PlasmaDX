@@ -11,6 +11,9 @@ cbuffer SphereParams : register(b0)
     float3 g_pad;        // 16-byte alignment
 };
 
+// Optional: 3D checker pattern toggle for mapping diagnostics
+static const bool kEnableChecker = false;
+
 [numthreads(8, 8, 8)]
 void main(uint3 id : SV_DispatchThreadID)
 {
@@ -22,8 +25,14 @@ void main(uint3 id : SV_DispatchThreadID)
     float d = distance(uvw, g_centerUVW);
     float inside = d <= g_radiusUVW ? 1.0 : 0.0;
 
-    // Write density (solid sphere)
-    g_density[id] = g_densityValue * inside;
+    // Write density (solid sphere) or checker if enabled
+    if (kEnableChecker) {
+        float3 cell = floor(uvw * 8.0);
+        float checker = fmod(cell.x + cell.y + cell.z, 2.0);
+        g_density[id] = checker * inside;
+    } else {
+        g_density[id] = g_densityValue * inside;
+    }
 }
 
 

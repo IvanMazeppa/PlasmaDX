@@ -140,6 +140,27 @@ void main(uint3 id : SV_DispatchThreadID) {
         return;
     }
 
+    // VOL_0003C DEBUG: Mode 4 — UVW visualizer at entry point
+    if (g_debugMode == 4) {
+        float3 entryPos = rayOrigin + rayDir * tNear;
+        float3 uvw = (entryPos - g_volumeMin) / (g_volumeMax - g_volumeMin);
+        g_hdrTarget[id.xy] = float4(saturate(uvw), 1.0);
+        return;
+    }
+
+    // VOL_0003C DEBUG: Mode 5 — Step-count heatmap (no shading)
+    if (g_debugMode == 5) {
+        float t = tNear;
+        uint steps = 0;
+        [loop] for (uint i = 0; i < g_maxSteps && t < tFar; ++i) {
+            t += g_stepSize;
+            steps++;
+        }
+        float s = steps / max(1.0, (float)g_maxSteps);
+        g_hdrTarget[id.xy] = float4(s.xxx, 1.0);
+        return;
+    }
+
     // Ray marching with Beer-Lambert absorption
     float3 accumulatedLight = float3(0, 0, 0);
     float transmittance = 1.0;

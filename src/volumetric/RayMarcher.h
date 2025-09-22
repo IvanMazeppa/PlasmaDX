@@ -56,9 +56,9 @@ public:
         m_params.screenSize.y = height;
     }
 
-    // VOL_0003A: Debug modes (0=Off, 1=RayDir, 2=Bounds)
-    void SetDebugMode(uint32_t mode) { m_debugMode = mode % 3u; }
-    void CycleDebugMode() { m_debugMode = (m_debugMode + 1u) % 3u; }
+    // VOL_0003A/C: Debug modes (0=Off, 1=RayDir, 2=Bounds, 3=Probe, 4=UVW, 5=Steps)
+    void SetDebugMode(uint32_t mode) { m_debugMode = mode % 6u; }
+    void CycleDebugMode() { m_debugMode = (m_debugMode + 1u) % 6u; }
     uint32_t GetDebugMode() const { return m_debugMode; }
 
     const RayMarcherParams& GetParams() const { return m_params; }

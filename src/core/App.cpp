@@ -1107,13 +1107,21 @@ void App::renderFrameDXR() {
 
 			m_particles->Update(m_cmdList.Get(), deltaTime, totalTime);
 
-			// VOL_0002 & VOL_0003: Fill density volume and ray march
+            // VOL_0002 & VOL_0003: Fill density volume and ray march
 			if (m_densityVolume && m_rayMarcher && m_hdrUavIndex != UINT_MAX) {
 				// Fill density volume with analytic field
 				m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
 
 				// Update ray marcher screen size
 				m_rayMarcher->SetScreenSize(float(m_width), float(m_height));
+
+                // VOL_0003C: Allow automation to set debug mode via environment
+                {
+                    int dbg = Env::GetInt("PLASMADX_DEBUG_MODE", -1);
+                    if (dbg >= 0) {
+                        m_rayMarcher->SetDebugMode(static_cast<uint32_t>(dbg));
+                    }
+                }
 
 				// VOL_0003: Ray march through the density volume
 				m_rayMarcher->March(m_cmdList.Get(),

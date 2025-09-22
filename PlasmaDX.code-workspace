@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../Agility_SDI_DXR_MCP"
+		},
+		{
+			"path": "\\\\B3\\cursor_default"
 		}
 	],
 	"settings": {
