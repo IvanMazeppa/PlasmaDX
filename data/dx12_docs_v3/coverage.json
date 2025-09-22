@@ -1,0 +1,19 @@
+{
+  "current": { "source": "client_stub" },
+  "client_stub": {
+    "total_entities": 962,
+    "dxr_entities": 14,
+    "hlsl_intrinsics": 33
+  },
+  "v2_3": {
+    "total_entities": 125,
+    "dxr_entities": 36,
+    "hlsl_intrinsics": 30
+  },
+  "version_history": [
+    { "version": "v2.1", "total_entities": 90, "dxr_entities": 24, "hlsl_intrinsics": 12 },
+    { "version": "v2.2", "total_entities": 110, "dxr_entities": 32, "hlsl_intrinsics": 24 },
+    { "version": "v2.3", "total_entities": 125, "dxr_entities": 36, "hlsl_intrinsics": 30 }
+  ]
+}
+
