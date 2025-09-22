@@ -1,0 +1,34 @@
+  0.0: Launching GpuPlayback engine
+  0.0: Opening D:\Users\dilli\AndroidStudioProjects\PlasmaDX\pix\Captures\mode_0.wpix
+  0.0: Capture OS: Windows 11 Enterprise, version 25H2 (26220.6690)
+  0.0: Starting analysis on localhost
+  0.0: Connecting to: localhost
+  0.0: Playback: Adapter ID was set to 0
+  0.0: Playback: Trying to find adapter with capture-time LUID instead
+  0.0: [Adapters] Seeking adapter via DXGI (LUID 77355)
+  0.1: [Adapters] Enumerated adapter 'NVIDIA GeForce RTX 4060 Ti' (LUID 75985)
+  0.1: [Adapters] Enumerated adapter 'Microsoft Basic Render Driver' (LUID 81852)
+  0.1: [Adapters] Seeking adapter via DxCore
+  0.1: [Adapters] Failed to find adapter
+  0.1: Playback: Using default adapter
+  0.1: [Adapters] Seeking adapter via DXGI (LUID 0)
+  0.1: [Adapters] Enumerated adapter 'NVIDIA GeForce RTX 4060 Ti' (LUID 75985)
+  0.1: [Adapters] Defaulting to first adapter because adapterLuid was set to 0
+  0.1: [IsDevModeEnabled]: LocalSettings=true, GroupPolicy=true, WCOS=false
+  0.1: Analysis OS: Windows 11 Enterprise, version 25H2 (26220.6690)
+  0.1: Capture device: NVIDIA GeForce RTX 4060 Ti. Driver: 32.00.0015.8097
+  0.1: Analysis device: NVIDIA GeForce RTX 4060 Ti. Driver: 32.00.0015.8097
+  0.1: 18248 > D3D12.dll path: C:\WINDOWS\SYSTEM32\d3d12.dll,
+  0.1: 18248 > Setting SDK version 616
+  0.1: 18248 > D3D12Core.dll version: 616, path: C:\WINDOWS\SYSTEM32\D3D12Core.dll,
+  0.1: Prefetching all resources took roughly 0 second(s).
+  0.1: Capture time D3D12 version: 616.
+  0.1: PIX was built against D3D12 version 616.
+  0.1: 18248 > D3D12.dll path: C:\WINDOWS\SYSTEM32\d3d12.dll,
+  0.1: 18248 > Setting SDK version 616
+  0.1: 18248 > D3D12Core.dll version: 616, path: C:\WINDOWS\SYSTEM32\D3D12Core.dll,
+  0.1: Replay time D3D12 version: 616.
+  0.1: E_PIX_ENABLE_EXPERIMENTAL_FEATURES_FAILED (0x8abc0028: D3D12EnableExperimentalFeatures failed during analysis.) - hr=0x80004002
+  0.1: pixtool error: PIXTOOL7 - Engine request failed
+
+  0.1: save-event-list failed: D3D12EnableExperimentalFeatures failed during analysis. (E_PIX_ENABLE_EXPERIMENTAL_FEATURES_FAILED)

@@ -1,0 +1,136 @@
+[INFO] === PlasmaDX Starting (FMA3 disabled for CPU compatibility) ===
+[INFO] App created, initializing...
+[INFO] Debug console allocated
+[INFO] Quit-on-device-removal is ENABLED (default)
+[INFO] Initializing PlasmaDX with D3D12 Agility SDK...
+[INFO] Agility exports: D3D12SDKVersion=616, D3D12SDKPath=D3D12\
+[INFO] Debug console allocated
+[INFO] Starting window creation...
+[INFO] Registering window class...
+[INFO] Creating window...
+[INFO] Showing window...
+[INFO] ShowWindow completed, calling UpdateWindow...
+[INFO] UpdateWindow completed
+[INFO] Window created successfully
+[INFO] Window creation completed, starting device creation...
+[INFO] === DEVICE CREATION MATRIX ===
+[INFO] Testing: agility=ON debug=OFF
+[INFO] Creating D3D12 device...
+[INFO] Debug layer disabled for matrix testing
+[INFO] Creating DXGI factory...
+[INFO] DXGI factory created successfully
+[INFO] Enumerating adapters...
+[INFO] Found adapter: NVIDIA GeForce RTX 4060 Ti
+[INFO] Attempting to create D3D12 device with adapter: NVIDIA GeForce RTX 4060 Ti
+[INFO] D3D12 device created successfully
+[INFO] Setting up InfoQueue for enhanced diagnostics...
+[INFO] DXGI InfoQueue configured - logging errors (no breaks)
+[INFO] MATRIX RESULT: agility=ON debug=OFF ÔåÆ SUCCESS tier=1.1
+[INFO] DXR Tier: 1.1
+[INFO] Initializing DXR...
+[INFO] ASBuilder stub created
+[INFO] Creating DescriptorHeap: type=CBV_SRV_UAV capacity=64 shaderVisible=true
+[INFO] DescriptorHeap initialized successfully
+[INFO] Building acceleration structures...
+[INFO] ASBuilder::CreateTriangleBLAS stub - allocating dummy buffers
+[INFO] ASBuilder::CreateTriangleBLAS stub completed successfully
+[INFO] ASBuilder::BuildTLAS stub - allocating dummy buffers
+[INFO] ASBuilder::BuildTLAS stub completed successfully
+[INFO] Creating DXR pipeline with offline compiled shaders...
+[INFO] Loaded DXIL shader: shaders/dxr/raytracing_lib.dxil (5760 bytes)
+[INFO] DXR shader loaded successfully (5760 bytes)
+[INFO] Pipeline created
+[INFO] Pipeline::AddDXILLibrary - stored DXIL library with 3 exports
+[INFO] Pipeline::AddHitGroup - configured hit group
+[INFO] Pipeline::SetShaderConfig - payload:16 attributes:8
+[INFO] Pipeline::SetPipelineConfig - max recursion:1
+[INFO] Pipeline::SetGlobalRootSignature - global root signature set
+[INFO] PIX: PSO Create Start
+[INFO] Pipeline::Create - building real DXR state object...
+[INFO] Pipeline::Create - DXIL data size: 5760 bytes
+[INFO] Pipeline::Create - exports count: 3
+[INFO] Pipeline::Create - export[0]: RayGen
+[INFO] Pipeline::Create - export[1]: Miss
+[INFO] Pipeline::Create - export[2]: ClosestHit
+[INFO] Pipeline::Create - DXR state object created successfully with 6 subobjects
+[INFO] PIX: PSO Create Complete
+[INFO] Creating shader binding table...
+[INFO] PIX: SBT Build Start
+[INFO] SBT: Creating real shader binding table
+[INFO] SBT: Setting raygen record
+[INFO] SBT: Raygen shader identifier is valid (non-null)
+[INFO] SBT: Adding miss record
+[INFO] SBT: Miss shader identifier is valid (non-null)
+[INFO] SBT: Adding hit group record
+[INFO] SBT: Hit group shader identifier is valid (non-null)
+[INFO] SBT: Building real GPU shader binding table
+[INFO] SBT: All shader identifiers valid, proceeding with GPU allocation
+[INFO] SBT: Allocating GPU buffer of size 192 bytes
+[INFO] SBT: GPU buffer created successfully, mapping memory
+[INFO] SBT: Memory mapped successfully, writing shader identifiers
+[INFO] SBT: Writing raygen shader identifier
+[INFO] SBT: Writing miss shader identifiers
+[INFO] SBT: Writing hit group shader identifiers
+[INFO] SBT: Unmapping buffer
+[INFO] SBT: Build complete - GPU addresses: Raygen=0xaaf2000, Miss=0xaaf2040, Hit=0xaaf2080
+[INFO] PIX: SBT Build Complete
+[INFO] Camera initialized
+[INFO] Camera constant buffer created
+[INFO] Composite: Initialized successfully
+[INFO] DescriptorHeap: Allocated new index 0 (bump allocator)
+[INFO] DescriptorHeap: allocated=1 free=63 capacity=64
+[INFO] DescriptorHeap: Allocated new index 1 (bump allocator)
+[INFO] DescriptorHeap: allocated=2 free=62 capacity=64
+[INFO] HDR texture descriptors allocated: SRV[0] UAV[1]
+[INFO] HDR texture created (1920x1080)
+[INFO] Particles: Initializing with 65536 particles
+[INFO] Particles: Created buffer for 65536 particles (2048 KB)
+[INFO] Loaded DXIL shader: shaders/vol/particles_update.dxil (4840 bytes)
+[INFO] Loaded DXIL shader: shaders/vol/particles_debug_pattern.dxil (5044 bytes)
+[INFO] Particles: Compute PSOs created (update + debug pattern)
+[INFO] Particles: Initialized 65536 particles with random data
+[WARN] Particles: GPU upload not implemented yet - particles will be zero on GPU
+[INFO] Particles: Initialized successfully
+[INFO] Particle system initialized (65536 particles)
+[INFO] DescriptorHeap: Allocated new index 2 (bump allocator)
+[INFO] DescriptorHeap: allocated=3 free=61 capacity=64
+[INFO] DescriptorHeap: Allocated new index 3 (bump allocator)
+[INFO] DescriptorHeap: allocated=4 free=60 capacity=64
+[INFO] DescriptorHeap: Allocated new index 4 (bump allocator)
+[INFO] DescriptorHeap: allocated=5 free=59 capacity=64
+[INFO] DescriptorHeap: Allocated new index 5 (bump allocator)
+[INFO] DescriptorHeap: allocated=6 free=58 capacity=64
+[INFO] DensityVolume created successfully
+[INFO] Found density_fill.dxil at: shaders/density_fill.dxil
+[INFO] Found density_advect_curl.dxil at: shaders/vol/density_advect_curl.dxil
+[INFO] Found density_slice.dxil at: shaders/density_slice.dxil
+[INFO] Successfully created density fill PSO
+[INFO] Successfully created density slice PSO
+[INFO] Successfully created curl-advect PSO
+[INFO] DensityVolume pipelines created successfully
+[INFO] Density volume initialized
+[INFO] Initializing RayMarcher (VOL_0003)...
+[INFO] RayMarcher initialized successfully
+[INFO] Ray marcher initialized
+[INFO] DXR initialized successfully with HDR pipeline
+[INFO] PlasmaDX initialized successfully
+[INFO] App initialized, starting run loop...
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+[INFO] PIX: Present Complete
+[INFO] PIX: Present Start
+
+
+
+

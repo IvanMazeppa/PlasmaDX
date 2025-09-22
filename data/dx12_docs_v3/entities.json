@@ -1,0 +1,41 @@
+{
+  "dx12_core": [
+    {
+      "name": "D3D12_RESOURCE_BARRIER",
+      "description": "Synchronizes access to resources between GPU operations",
+      "category": "Core"
+    },
+    {
+      "name": "ID3D12Device5",
+      "description": "Device interface supporting raytracing state objects",
+      "category": "Core"
+    }
+  ],
+  "dxr": [
+    {
+      "name": "D3D12_DISPATCH_RAYS_DESC",
+      "description": "Descriptor for ray dispatch including shader binding table",
+      "category": "DXR"
+    },
+    {
+      "name": "D3D12_STATE_OBJECT_DESC",
+      "description": "Raytracing pipeline state object description",
+      "category": "DXR"
+    }
+  ],
+  "hlsl_intrinsics": [
+    {
+      "name": "DispatchRaysDimensions",
+      "description": "Gets total dispatch dimensions",
+      "shader_stages": ["raygen"],
+      "shader_model": "SM 6.3"
+    },
+    {
+      "name": "DispatchRaysIndex",
+      "description": "Gets current dispatch ray indices (x,y,z)",
+      "shader_stages": ["raygen"],
+      "shader_model": "SM 6.3"
+    }
+  ]
+}
+

@@ -1,5 +1,9 @@
 ## Claude Starter Brief — PlasmaDX (DX12 + DXR)
 
+### 🚨 CRITICAL DIRECTORY GUARDRAIL
+**ALWAYS** ensure you are working in `/mnt/d/Users/dilli/AndroidStudioProjects/PlasmaDX`, NOT PlasmaVulkan.
+PlasmaVulkan has been completely shelved. Claude Code may default to PlasmaVulkan directory - immediately switch to PlasmaDX at start of every session.
+
 ### Mission
 Build a real-time (and offline-capable) ray traced volumetric plasma renderer using DirectX 12 + DXR, with strong tooling (PIX) and clear, testable milestones.
 

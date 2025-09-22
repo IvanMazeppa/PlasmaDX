@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "dx12-docs-v3": {
+      "command": "py",
+      "args": [
+        "-3",
+        "${workspaceFolder}/src/mcp/dx12_docs_v3_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}
+
