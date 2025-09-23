@@ -107,8 +107,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     ndc.y = -ndc.y; // Flip Y for D3D12
 
     // Reconstruct world space ray
-    float4 nearPoint = mul(g_invViewProjMatrix, float4(ndc, 0.0, 1.0));
-    float4 farPoint = mul(g_invViewProjMatrix, float4(ndc, 1.0, 1.0));
+    // Use mul(vector, matrix) since matrices are transposed for HLSL
+    float4 nearPoint = mul(float4(ndc, 0.0, 1.0), g_invViewProjMatrix);
+    float4 farPoint  = mul(float4(ndc, 1.0, 1.0), g_invViewProjMatrix);
 
     nearPoint /= nearPoint.w;
     farPoint /= farPoint.w;

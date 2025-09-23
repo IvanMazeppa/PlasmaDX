@@ -47,9 +47,11 @@ public:
     }
     DirectX::XMFLOAT3 GetPosition() const { return m_position; }
     DirectX::XMFLOAT3 GetForward() const {
+        // m_constants.viewInverse is stored transposed for HLSL. Transpose back before use on CPU.
         DirectX::XMFLOAT3 forward;
+        DirectX::XMMATRIX invView = DirectX::XMMatrixTranspose(m_constants.viewInverse);
         DirectX::XMStoreFloat3(&forward, DirectX::XMVector3Transform(
-            DirectX::XMVectorSet(0, 0, 1, 0), m_constants.viewInverse));
+            DirectX::XMVectorSet(0, 0, 1, 0), invView));
         return forward;
     }
     float GetNearPlane() const { return m_nearPlane; }

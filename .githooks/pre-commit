@@ -15,11 +15,44 @@ protected_paths=(
   "DX12_MCP_README.md"
 )
 
+# Allow-list: deletions matching these globs are permitted (build artifacts, compiled blobs)
+allowed_delete_globs=(
+  # compiled shaders
+  "shaders/*.dxil"
+  "shaders/**/*.dxil"
+  "shaders/**/*.spv"
+  # build trees and outputs
+  "build-vs2022/*" "build-vs2022/**"
+  "build-vs2022b/*" "build-vs2022b/**"
+  "cmake-build-debug/*" "cmake-build-debug/**"
+  "cmake-build-debug-visual-studio/*" "cmake-build-debug-visual-studio/**"
+  "bin/*" "bin/**"
+  # common MSVC intermediates
+  "*.pdb" "*.ilk" "*.obj" "*.tlog/*"
+  # logs
+  "PlasmaDX.log"
+)
+
+is_allowed_delete() {
+  local f="$1"
+  for g in "${allowed_delete_globs[@]}"; do
+    case "$f" in
+      $g) return 0;;
+    esac
+  done
+  return 1
+}
+
 # List deleted or renamed-away files in the index
 deleted_files=$(git diff --cached --name-status --diff-filter=DR | awk '{print $2}')
 
 blocked=()
 for f in ${deleted_files}; do
+  # Skip allowed deletions (build artifacts)
+  if is_allowed_delete "$f"; then
+    continue
+  fi
+  # Block deletions inside protected paths
   for p in "${protected_paths[@]}"; do
     case "$f" in
       "$p"|$p*) blocked+=("$f"); break;;

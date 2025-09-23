@@ -68,32 +68,11 @@ float3 ComputeLighting(float3 worldPos, float density) {
     }
 
     // Basic isotropic scattering phase function
-    const float phase = 1.0 / (4.0 * 3.14159265);
+    float phase = 1.0 / (4.0 * 3.14159265);
 
-    // Self-shadowing: march toward the directional light and accumulate transmittance
-    float3 L = normalize(g_lightDirection);
+    // In-scattering: light scattered toward the camera
+    float3 scattering = g_lightColor * density * phase;
 
-    float tNL, tFL;
-    bool hitL = IntersectAABB(worldPos, L, g_volumeMin, g_volumeMax, tNL, tFL);
-
-    float transL = 1.0;
-    if (hitL) {
-        // If starting inside, begin at t=epsilon; otherwise start at entry
-        float tL = max(tNL, 0.0) + 1e-3;
-        const float lightStep = max(g_stepSize * 3.0, 0.002);
-        const uint maxLightSteps = max(8u, g_maxSteps / 8u);
-
-        [loop] for (uint s = 0; s < maxLightSteps && tL < tFL && transL > 0.01; ++s) {
-            float3 pL = worldPos + L * tL;
-            float dL = SampleDensity(pL);
-            float att = exp(-dL * g_absorption * lightStep);
-            transL *= att;
-            tL += lightStep;
-        }
-    }
-
-    // In-scattering attenuated by light transmittance
-    float3 scattering = g_lightColor * density * phase * transL;
     return scattering;
 }
 
@@ -110,7 +89,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     ndc.y = -ndc.y; // Flip Y for D3D12 coordinate system
 
     // Reconstruct world space ray using inverse view-projection matrix
-    // Use mul(vector, matrix) because we supply transposed matrices; this avoids an extra implicit transpose.
+    // Note: g_invViewProjMatrix is provided transposed for HLSL, so use mul(vector, matrix)
     float4 nearPoint = mul(float4(ndc, 0.0, 1.0), g_invViewProjMatrix);
     float4 farPoint  = mul(float4(ndc, 1.0, 1.0), g_invViewProjMatrix);
 
