@@ -1,7 +1,0 @@
-{"id":1,"method":"list_tools"}
-{"id":2,"method":"call_tool","params":{"name":"add_doc","arguments":{"category":"dx12","title":"ID3D12Device5","slug":"dx12-id3d12device5","content":"Supports DXR. See [[dxr-dispatchrays]]."}}}
-{"id":3,"method":"call_tool","params":{"name":"add_doc","arguments":{"category":"dxr","title":"DispatchRays","slug":"dxr-dispatchrays","content":"Dispatches rays in DXR pipeline."}}}
-{"id":4,"method":"call_tool","params":{"name":"call_nonexistent","arguments":{}}}
-{"id":5,"method":"call_tool","params":{"name":"search","arguments":{"query":"DXR"}}}
-{"id":6,"method":"call_tool","params":{"name":"xrefs","arguments":{"slug":"dx12-id3d12device5"}}}
-{"id":7,"method":"call_tool","params":{"name":"dx12_symbol_lookup","arguments":{"symbol":"ID3D12Device5"}}}

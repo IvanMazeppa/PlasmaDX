@@ -6,5 +6,13 @@
         {
             "path": "../Agility_SDI_DXR_MCP"
         }
-    ]
+    ],
+    "extensions": {
+        "recommendations": [
+            "ms-azuretools.vscode-docker"
+        ]
+    },
+    "settings": {
+        "powershell.cwd": "PlasmaDX"
+    }
 }

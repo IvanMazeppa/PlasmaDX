@@ -1,0 +1,4 @@
+D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build/CMakeFiles/PlasmaDX.dir
+D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build/CMakeFiles/compile_shaders.dir
+D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build/CMakeFiles/ALL_BUILD.dir
+D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build/CMakeFiles/ZERO_CHECK.dir

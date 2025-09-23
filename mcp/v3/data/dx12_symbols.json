@@ -1,9 +1,0 @@
-{
-  "ID3D12Device": "dx12-id3d12device",
-  "ID3D12Device5": "dx12-id3d12device5",
-  "ID3D12GraphicsCommandList4": "dx12-id3d12graphicscommandlist4",
-  "D3D12_RAYTRACING_PIPELINE_STATE_DESC": "dxr-d3d12_raytracing_pipeline_state_desc",
-  "DispatchRays": "dxr-dispatchrays",
-  "D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE": "dxr-state-object-types",
-  "BuildRaytracingAccelerationStructure": "dxr-build-accel-structure"
-}
