@@ -1,0 +1,6 @@
+{
+  "name": "DX12/DXR MCP v3",
+  "command": ["python", "server.py", "--stdio"],
+  "cwd": "${workspaceFolder}/mcp/v3",
+  "env": {}
+}
