@@ -26,6 +26,8 @@ bin/
 *.dll
 
 # Local environment and tooling
-.cursor/
+# Keep .cursor tracked for agent config but ignore its cache if any
+!.cursor/
+.cursor/cache/
 .vscode/
 PlasmaDX.log

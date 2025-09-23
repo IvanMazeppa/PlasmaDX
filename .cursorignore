@@ -1,0 +1,13 @@
+build-vs2022/
+build-vs2022b/
+cmake-build-debug/
+cmake-build-debug-visual-studio/
+bin/
+lib/
+tools/
+*.pdb
+*.ilk
+*.obj
+*.tlog/
+PlasmaDX.log
+shaders/**/*.dxil
