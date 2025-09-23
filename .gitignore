@@ -1,2 +1,31 @@
-build-vs2022/CMakeCache.txt
-build-vs2022/CMakeCache.txt
+# Build directories
+build-vs2022/
+build-vs2022b/
+cmake-build-debug/
+cmake-build-debug-visual-studio/
+
+# Visual Studio/MSBuild outputs
+*.pdb
+*.ilk
+*.obj
+*.tlog/
+*.lastbuildstate
+*.log
+*.user
+*.VC.db
+*.VC.VC.opendb
+
+# Compiled shaders and intermediates
+shaders/**/*.dxil
+shaders/**/*.spv
+build-vs2022/Debug/shaders/
+
+# Binaries
+bin/
+*.exe
+*.dll
+
+# Local environment and tooling
+.cursor/
+.vscode/
+PlasmaDX.log
