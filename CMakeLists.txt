@@ -77,14 +77,22 @@ if (NOT D3DCOMPILER_LIB)
     set(D3DCOMPILER_LIB d3dcompiler)
 endif()
 
-# Link DXC library
+# Link core D3D libraries
 target_link_libraries(PlasmaDX PRIVATE
     ${D3D12_LIB}
     ${DXGI_LIB}
     ${DXGUID_LIB}
     ${D3DCOMPILER_LIB}
-    "${CMAKE_SOURCE_DIR}/lib/dxcompiler.lib"
 )
+
+# Optionally link DXC import library if available locally
+set(DXC_LIB_PATH "${CMAKE_SOURCE_DIR}/lib/dxcompiler.lib")
+if(EXISTS "${DXC_LIB_PATH}")
+    message(STATUS "Found dxcompiler.lib at ${DXC_LIB_PATH}")
+    target_link_libraries(PlasmaDX PRIVATE "${DXC_LIB_PATH}")
+else()
+    message(WARNING "dxcompiler.lib not found at ${DXC_LIB_PATH}; skipping link")
+endif()
 
 # Output directories
 set_target_properties(PlasmaDX PROPERTIES
