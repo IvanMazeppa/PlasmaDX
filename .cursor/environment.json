@@ -1,6 +1,6 @@
 {
   "agentCanUpdateSnapshot": false,
-  "install": "cmake -S . -B build-vs2022 -G \"Visual Studio 17 2022\" -A x64",
+  "install": "bash -lc 'echo PlasmaDX agent install is a no-op on Linux runners'",
   "terminals": [
     {
       "name": "Build Debug",
@@ -8,11 +8,11 @@
     },
     {
       "name": "Run Debug (no DXR)",
-      "command": "pwsh -NoLogo -NoProfile -Command \"$env:PLASMADX_DISABLE_DXR='1'; $env:PLASMADX_USE_CURL='1'; $env:PLASMADX_NO_QUIT_ON_REMOVAL='1'; Start-Process -FilePath 'build-vs2022\\Debug\\PlasmaDX.exe' -WorkingDirectory (Get-Location).Path\""
+      "command": "bash -lc 'echo PlasmaDX run skipped on Linux agent'"
     },
     {
       "name": "Run Debug (DXR on)",
-      "command": "pwsh -NoLogo -NoProfile -Command \"$env:PLASMADX_DISABLE_DXR='0'; $env:PLASMADX_NO_QUIT_ON_REMOVAL='1'; Start-Process -FilePath 'build-vs2022\\Debug\\PlasmaDX.exe' -WorkingDirectory (Get-Location).Path\""
+      "command": "bash -lc 'echo PlasmaDX run skipped on Linux agent'"
     }
   ]
 }
