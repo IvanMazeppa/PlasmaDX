@@ -14,3 +14,14 @@ There is no automated test harness yet. Validate changes by building Debug, runn
 
 ## Commit & Pull Request Guidelines
 Match the existing Conventional-Commit style: `type(scope): summary` (e.g., `chore(hooks): allow deleting build artifacts and compiled shaders from index`). Commit frequently but keep logical units isolated. PRs should outline motivation, approach, and testing evidence (commands run, logs reviewed, screenshots or PIX captures if visuals changed). Link related roadmap items or issues and call out any follow-up work or risks so reviewers can respond quickly.
+
+## Background Agent Guardrails
+- Filesystem access: Allowed read across the repo. Write is constrained:
+  - Allowed without approval: `changes/`, `results/`, `reports/`, `findings/`, `.cursor/`, `.githooks/`, docs (`*.md`).
+  - Core areas (require approval): `src/`, `include/`, `shaders/`, `tools/`, `renderer/`, `dxr/`, CMake files.
+- Approval tokens (must be in commit message):
+  - `APPROVE_PLASMA_WRITE`: permit edits to core areas above.
+  - `APPROVE_DELETE`: permit deletions/renames of tracked files.
+- Deletions: Always require `APPROVE_DELETE`. Prefer non-destructive edits; stage patches under `changes/` when in doubt.
+- Branches: Default work on feature branches. Protected branches should be updated via PR.
+- Budget: Prefer small, reviewable changes; stop and propose a plan if scope grows.

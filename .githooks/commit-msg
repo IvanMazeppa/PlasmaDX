@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Gate destructive or core edits behind explicit approval tokens in the commit message.
+# Tokens (case-sensitive):
+#  - APPROVE_PLASMA_WRITE : allow edits to core code/shaders/CMake
+#  - APPROVE_DELETE       : allow deletions/renames of tracked files
+
+msg_file="$1"
+msg_contents=$(tr -d '\r' < "$msg_file")
+
+has_write=0
+has_delete=0
+grep -q 'APPROVE_PLASMA_WRITE' <<<"$msg_contents" && has_write=1 || true
+grep -q 'APPROVE_DELETE' <<<"$msg_contents" && has_delete=1 || true
+
+# Paths considered core-protected (read-only by default for agents)
+protected_paths=(
+  'CMakeLists.txt'
+  'CMakePresets.json'
+  'src/'
+  'include/'
+  'shaders/'
+  'tools/'
+  'renderer/'
+  'dxr/'
+)
+
+# Default write-allowed areas (no token required)
+whitelist_write=(
+  'changes/' 'results/' 'reports/' 'findings/' 'docs/' '.cursor/' '.githooks/'
+  'AGENTS.md' 'README.md' 'DXR_*' 'DX12_*' 'logs/' 'pix/*.md' 'pix/*.txt'
+)
+
+is_under() { # file starts with path prefix
+  local f="$1"; local p="$2";
+  case "$f" in "$p"|$p*) return 0;; esac; return 1
+}
+
+matches_glob() { # basic glob match using case pattern
+  local f="$1"; shift
+  for g in "$@"; do case "$f" in $g) return 0;; esac; done; return 1
+}
+
+# Identify staged changes
+deleted_files=$(git diff --cached --name-status --diff-filter=DR | awk '{print $2}')
+modified_files=$(git diff --cached --name-only --diff-filter=AMRC)
+
+blocked_delete=()
+if [ -n "$deleted_files" ]; then
+  for f in $deleted_files; do
+    if [ $has_delete -eq 0 ]; then blocked_delete+=("$f"); fi
+  done
+fi
+
+blocked_write=()
+if [ -n "$modified_files" ]; then
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    # If file is in whitelist, skip
+    if matches_glob "$f" "${whitelist_write[@]}"; then continue; fi
+    # If file under protected path, require write token
+    for p in "${protected_paths[@]}"; do
+      if is_under "$f" "$p"; then
+        if [ $has_write -eq 0 ]; then blocked_write+=("$f"); fi
+        break
+      fi
+    done
+  done <<< "$modified_files"
+fi
+
+if [ ${#blocked_delete[@]} -gt 0 ] || [ ${#blocked_write[@]} -gt 0 ]; then
+  echo "Commit blocked by commit-msg policy:" >&2
+  if [ ${#blocked_write[@]} -gt 0 ]; then
+    echo " - Core edits require token: APPROVE_PLASMA_WRITE" >&2
+    for b in "${blocked_write[@]}"; do echo "   * $b" >&2; done
+  fi
+  if [ ${#blocked_delete[@]} -gt 0 ]; then
+    echo " - Deletions/renames require token: APPROVE_DELETE" >&2
+    for b in "${blocked_delete[@]}"; do echo "   * $b" >&2; done
+  fi
+  echo "Add the appropriate token(s) to the commit message and retry." >&2
+  exit 1
+fi
+
+exit 0
+
+
