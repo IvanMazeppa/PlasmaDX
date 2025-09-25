@@ -1,6 +1,9 @@
 {
     "folders": [
         {
+            "path": "../Agility_SDI_DXR_MCP"
+        },
+        {
             "path": "."
         }
     ]
