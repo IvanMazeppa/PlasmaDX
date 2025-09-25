@@ -44,9 +44,9 @@ float SampleDensity(float3 worldPos, float3 sphereCenter, float sphereRadius, fl
     // Smooth falloff using smoothstep for nice visual appearance
     float density = 1.0 - smoothstep(0.0, 1.0, normalizedDist);
 
-    // Add animated variation for visual interest - rotating pattern
-    float variation = sin(worldPos.x * 3.0 + time * 2.0) * sin(worldPos.y * 3.0 + time * 1.5) * sin(worldPos.z * 3.0 + time * 1.8);
-    density += variation * 0.15;
+    // Add animated variation for visual interest - looser, slower pattern
+    float variation = sin(worldPos.x * 1.5 + time * 1.0) * sin(worldPos.y * 1.2 + time * 0.8) * sin(worldPos.z * 1.8 + time * 1.2);
+    density += variation * 0.2;
 
     // Add pulsing effect to make density changes more visible
     float pulse = 0.8 + 0.3 * sin(time * 3.0);
@@ -248,14 +248,21 @@ void ExecuteVolumetricHit(inout RayPayload payload, float3 rayOrigin, float3 ray
 
 // Manual execution of Miss logic (called from RayGen)
 void ExecuteMiss(inout RayPayload payload, float3 rayDir) {
-    // DEBUG: Yellow miss shader - easy to distinguish from lit triangle
+    // Use g_bg to control background brightness (torchlight mode uses dark background)
     float3 direction = rayDir;
     float t = 0.5 * (direction.y + 1.0);
 
-    // Yellow gradient instead of blue
-    float3 topColor = float3(1.0, 1.0, 0.5);   // Light yellow
-    float3 bottomColor = float3(0.8, 0.6, 0.0); // Dark yellow
-    float3 skyColor = lerp(bottomColor, topColor, t);
-
-    payload.color = float4(skyColor, 1.0);
+    if (g_bg < 0.1) {
+        // Torchlight mode: very dark background
+        float3 topColor = float3(0.02, 0.02, 0.025) * g_bg;
+        float3 bottomColor = float3(0.0, 0.0, 0.0);
+        float3 skyColor = lerp(bottomColor, topColor, t);
+        payload.color = float4(skyColor, 1.0);
+    } else {
+        // Normal mode: yellow gradient for visibility
+        float3 topColor = float3(1.0, 1.0, 0.5) * g_bg;
+        float3 bottomColor = float3(0.8, 0.6, 0.0) * g_bg;
+        float3 skyColor = lerp(bottomColor, topColor, t);
+        payload.color = float4(skyColor, 1.0);
+    }
 }

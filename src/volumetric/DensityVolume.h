@@ -9,6 +9,7 @@
 using Microsoft::WRL::ComPtr;
 
 class DescriptorHeap;
+class MetaballSystem;
 
 class DensityVolume {
 public:
@@ -29,6 +30,8 @@ public:
     // VOL_0003B: Fill with analytic sphere baseline
     void FillAnalyticSphere(ComPtr<ID3D12GraphicsCommandList4> cmdList,
                             DirectX::XMFLOAT3 centerUVW, float radiusUVW, float densityValue);
+    // Metaball-based lava lamp density filling
+    void FillMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, MetaballSystem* metaballSystem);
     void DebugSlice(ComPtr<ID3D12GraphicsCommandList4> cmdList, ComPtr<ID3D12Resource> hdrTarget,
                    D3D12_GPU_DESCRIPTOR_HANDLE hdrUav, uint32_t sliceZ);
 
@@ -69,9 +72,11 @@ private:
     ComPtr<ID3D12RootSignature> m_fillRootSig;
     ComPtr<ID3D12RootSignature> m_sliceRootSig;
     ComPtr<ID3D12RootSignature> m_advectRootSig; // VOL_0004
+    ComPtr<ID3D12RootSignature> m_metaballRootSig; // Metaball fill root signature
     ComPtr<ID3D12PipelineState> m_fillPSO;
     ComPtr<ID3D12PipelineState> m_slicePSO;
     ComPtr<ID3D12PipelineState> m_advectPSO; // VOL_0004
+    ComPtr<ID3D12PipelineState> m_metaballPSO; // Metaball fill PSO
     ComPtr<ID3D12Resource> m_advectCB;       // VOL_0004 constants (b0)
 
     VolumePreset m_currentPreset;

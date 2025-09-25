@@ -26,6 +26,7 @@ struct RayMarcherParams {
     XMFLOAT2 screenSize = { 1920.0f, 1080.0f };
     float time = 0.0f;
     float exposure = 5.0f;  // Increased for better visibility
+    float phaseG = 0.2f;    // HG anisotropy
 };
 
 class RayMarcher {
@@ -49,6 +50,7 @@ public:
     void SetStepSize(float stepSize) { m_params.stepSize = stepSize; }
     void SetMaxSteps(uint32_t maxSteps) { m_params.maxSteps = maxSteps; }
     void SetExposure(float exposure) { m_params.exposure = exposure; }
+    void SetPhaseG(float g) { m_params.phaseG = std::max(-0.6f, std::min(0.6f, g)); }
     void SetLightDirection(XMFLOAT3 dir);
     void SetLightColor(XMFLOAT3 color) { m_params.lightColor = color; }
     void SetScreenSize(float width, float height) {

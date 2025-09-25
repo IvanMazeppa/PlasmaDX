@@ -45,6 +45,7 @@ class DescriptorHeap;
 class Particles;
 class DensityVolume;
 class RayMarcher;
+class MetaballSystem;
 
 class App {
 public:
@@ -135,6 +136,14 @@ private:
 	// Camera system (DXR_0019)
 	std::unique_ptr<Camera> m_camera;
 
+    // Torchlight state
+    bool m_torchOn = false;       // Torch controlled by LMB
+    bool m_torchAttached = true;  // Keep for F key toggle
+    float m_innerConeDeg = 12.0f;
+    float m_outerConeDeg = 20.0f;
+    float m_mouseX = 0.5f, m_mouseY = 0.5f; // Normalized mouse position
+    int m_lightColorIndex = 0;    // For C key cycling
+
 	// Particle system (VOL_0001)
 	std::unique_ptr<Particles> m_particles;
 
@@ -143,6 +152,9 @@ private:
 
 	// Volume renderer (VOL_0003)
 	std::unique_ptr<RayMarcher> m_rayMarcher;
+
+	// Metaballs (lava lamp)
+	std::unique_ptr<MetaballSystem> m_metaballSystem;
 
 	// Debug/diagnostics interfaces
 	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_d3d12InfoQueue;

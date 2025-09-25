@@ -2,6 +2,7 @@
 #include "Camera.h"
 #include "../utils/Logger.h"
 #include <sstream>
+#include <cmath>
 #include "../utils/Env.h"
 #include "../utils/DescriptorHeap.h"
 #include "../dxr/ASBuilder.h"
@@ -12,6 +13,7 @@
 #include "../volumetric/Particles.h"
 #include "../volumetric/DensityVolume.h"
 #include "../volumetric/RayMarcher.h"
+#include "../volumetric/MetaballSystem.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -85,6 +87,38 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				}
 			}
 			break;
+
+		case 'F':  // Toggle torchlight attach/detach (only in torchlight demo mode)
+			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+				g_appInstance->m_torchAttached = !g_appInstance->m_torchAttached;
+				LOGI(g_appInstance->m_torchAttached ? "Torch: Attached to camera" : "Torch: Detached (sweeping)");
+			}
+			break;
+
+		case 'C':  // Cycle light colors (torchlight demo mode) OR ray marcher colors
+			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+				// Torchlight demo mode: cycle colors for torchlight
+				g_appInstance->m_lightColorIndex = (g_appInstance->m_lightColorIndex + 1) % 5;
+				const char* colors[] = {"Warm torch", "Cool blue", "Red", "Green", "Purple"};
+				std::string msg = "Light color: " + std::string(colors[g_appInstance->m_lightColorIndex]);
+				LOGI(msg);
+			}
+			else if (g_appInstance && g_appInstance->m_rayMarcher) {
+				// Normal mode: cycle ray marcher colors
+				static int colorMode = 0;
+				colorMode = (colorMode + 1) % 5;
+				XMFLOAT3 colors[] = {
+					{1.0f, 0.9f, 0.7f},  // Warm white (default)
+					{0.4f, 0.7f, 1.0f},  // Cool blue
+					{1.0f, 0.4f, 0.2f},  // Orange/red plasma
+					{0.2f, 1.0f, 0.4f},  // Green plasma
+					{0.8f, 0.2f, 1.0f}   // Purple plasma
+				};
+				g_appInstance->m_rayMarcher->SetLightColor(colors[colorMode]);
+				LOGI("Color mode " + std::to_string(colorMode) + " selected");
+			}
+			break;
+
 		case '1':  // Decrease density scale
 		case '2':  // Increase density scale
 			if (g_appInstance->m_rayMarcher) {
@@ -105,23 +139,27 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Absorption changed");
 			}
 			break;
-		case 'C':  // Cycle through colors
+		case '5': // Decrease anisotropy g
+		case '6': // Increase anisotropy g
 			if (g_appInstance->m_rayMarcher) {
-				static int colorMode = 0;
-				colorMode = (colorMode + 1) % 5;
-				XMFLOAT3 colors[] = {
-					{1.0f, 0.9f, 0.7f},  // Warm white (default)
-					{0.4f, 0.7f, 1.0f},  // Cool blue
-					{1.0f, 0.4f, 0.2f},  // Orange/red plasma
-					{0.2f, 1.0f, 0.4f},  // Green plasma
-					{0.8f, 0.2f, 1.0f}   // Purple plasma
-				};
-				g_appInstance->m_rayMarcher->SetLightColor(colors[colorMode]);
-				LOGI("Color mode " + std::to_string(colorMode) + " selected");
+				auto params = g_appInstance->m_rayMarcher->GetParams();
+				float newG = params.phaseG + (wParam == '5' ? -0.05f : 0.05f);
+				g_appInstance->m_rayMarcher->SetPhaseG(newG);
+				LOGI("Phase g changed");
 			}
 			break;
-		case VK_ADD:      // + key: Increase exposure
-		case VK_OEM_PLUS: // = key (also +)
+		case 'P': // Increase metaball count (torchlight demo or lava lamp)
+			if (g_appInstance->m_metaballSystem) {
+				g_appInstance->m_metaballSystem->IncreaseCount();
+			}
+			break;
+		case 'O': // Decrease metaball count (Shift-P alternative: O)
+			if (g_appInstance->m_metaballSystem) {
+				g_appInstance->m_metaballSystem->DecreaseCount();
+			}
+			break;
+        case VK_ADD:      // + key: Increase exposure
+        case VK_OEM_PLUS: // = key (also +)
 			if (g_appInstance->m_rayMarcher) {
 				auto params = g_appInstance->m_rayMarcher->GetParams();
 				float newExposure = std::min(20.0f, params.exposure + 1.0f);
@@ -129,8 +167,8 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Exposure: " + std::to_string(newExposure));
 			}
 			break;
-		case VK_SUBTRACT:  // - key: Decrease exposure
-		case VK_OEM_MINUS: // - key
+        case VK_SUBTRACT:  // - key: Decrease exposure
+        case VK_OEM_MINUS: // - key
 			if (g_appInstance->m_rayMarcher) {
 				auto params = g_appInstance->m_rayMarcher->GetParams();
 				float newExposure = std::max(0.1f, params.exposure - 1.0f);
@@ -160,25 +198,43 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	static POINT lastMousePos = {0, 0};
 
 	if (msg == WM_LBUTTONDOWN) {
+		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+			// Torchlight mode: LMB turns torch on
+			g_appInstance->m_torchOn = true;
+		}
 		SetCapture(hWnd);
 		mouseCapturing = true;
 		GetCursorPos(&lastMousePos);
 	}
 	else if (msg == WM_LBUTTONUP) {
+		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+			// Torchlight mode: LMB release turns torch off
+			g_appInstance->m_torchOn = false;
+		}
 		ReleaseCapture();
 		mouseCapturing = false;
 	}
-	else if (msg == WM_MOUSEMOVE && mouseCapturing && g_appInstance && g_appInstance->m_camera) {
-		POINT currentMousePos;
-		GetCursorPos(&currentMousePos);
+	else if (msg == WM_MOUSEMOVE) {
+		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+			// Torchlight mode: track mouse position for light direction
+			RECT clientRect;
+			GetClientRect(hWnd, &clientRect);
+			POINT mousePos = { LOWORD(lParam), HIWORD(lParam) };
+			g_appInstance->m_mouseX = float(mousePos.x) / float(clientRect.right);
+			g_appInstance->m_mouseY = float(mousePos.y) / float(clientRect.bottom);
+		}
+		else if (mouseCapturing && g_appInstance && g_appInstance->m_camera) {
+			POINT currentMousePos;
+			GetCursorPos(&currentMousePos);
 
-		int deltaX = currentMousePos.x - lastMousePos.x;
-		int deltaY = currentMousePos.y - lastMousePos.y;
+			int deltaX = currentMousePos.x - lastMousePos.x;
+			int deltaY = currentMousePos.y - lastMousePos.y;
 
-		// Pass mouse delta to camera for orbit/rotation
-		g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
+			// Pass mouse delta to camera for orbit/rotation
+			g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
 
-		lastMousePos = currentMousePos;
+			lastMousePos = currentMousePos;
+		}
 	}
 	else if (msg == WM_MOUSEWHEEL && g_appInstance) {
 		// Mouse wheel for zoom
@@ -301,6 +357,10 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 
 int App::run() {
 	MSG msg{};
+    // FPS tracking
+    LARGE_INTEGER freq{}; QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER last{}; QueryPerformanceCounter(&last);
+    double acc = 0.0; int frames = 0;
 	while (msg.message != WM_QUIT) {
 		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
 			TranslateMessage(&msg);
@@ -319,6 +379,17 @@ int App::run() {
 				renderFrame();
 			}
 		}
+        // Update FPS title once per second
+        LARGE_INTEGER now{}; QueryPerformanceCounter(&now);
+        double dt = double(now.QuadPart - last.QuadPart) / double(freq.QuadPart);
+        last = now; acc += dt; frames++;
+        if (acc >= 1.0) {
+            double fps = frames / acc;
+            wchar_t title[256];
+            swprintf_s(title, L"PlasmaDX - DXR Hello Pipeline  [%.1f FPS]", fps);
+            SetWindowTextW(m_hwnd, title);
+            acc = 0.0; frames = 0;
+        }
 	}
 	waitGPU();
 	return 0;
@@ -363,7 +434,7 @@ bool App::createWindow(HINSTANCE hInstance, int nCmdShow) {
 	RegisterClassW(&wc);
 
 	LOGI("Creating window...");
-	m_hwnd = CreateWindowExW(0, wc.lpszClassName, L"PlasmaDX - DXR Hello Pipeline", WS_OVERLAPPEDWINDOW,
+    m_hwnd = CreateWindowExW(0, wc.lpszClassName, L"PlasmaDX - DXR Hello Pipeline", WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, m_width, m_height, nullptr, nullptr, hInstance, nullptr);
 	if (!m_hwnd) {
 		LOGE("CreateWindowEx failed");
@@ -901,6 +972,14 @@ bool App::initializeDXR() {
 	}
 	LOGI("Ray marcher initialized");
 
+	// Initialize metaball lava lamp system
+	m_metaballSystem = std::make_unique<MetaballSystem>();
+	if (!m_metaballSystem->Initialize(m_device, m_descriptorAllocator.get())) {
+		LOGE("Failed to initialize metaball system");
+		return false;
+	}
+	LOGI("Metaball lava lamp system initialized");
+
 	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
 }
@@ -1133,17 +1212,27 @@ void App::renderFrameDXR() {
                     // VOL_0004: curl-advection ping-pong
                     m_densityVolume->AdvectCurl(m_cmdList.Get(), deltaTime, totalTime);
                 } else {
-                    // Analytic fill or sphere baseline once
-                    int useSphere = Env::GetInt("PLASMADX_FILL_SPHERE", 0);
-                    static bool s_sphereFilled = false;
-                    if (useSphere != 0) {
-                        if (!s_sphereFilled) {
-                            m_densityVolume->FillAnalyticSphere(
-                                m_cmdList.Get(), DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f), 0.30f, 1.0f);
-                            s_sphereFilled = true;
-                        }
+                    // Choose between lava lamp metaballs or legacy fills
+                    bool useLavaLamp = Env::GetBool("PLASMADX_LAVA_LAMP", true); // Default to lava lamp
+                    if (useLavaLamp && m_metaballSystem) {
+                        // Update physics simulation
+                        m_metaballSystem->UpdatePhysics(deltaTime);
+
+                        // Fill density volume with metaball shapes
+                        m_densityVolume->FillMetaballs(m_cmdList.Get(), m_metaballSystem.get());
                     } else {
-                        m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
+                        // Legacy analytic fill or sphere baseline
+                        int useSphere = Env::GetInt("PLASMADX_FILL_SPHERE", 0);
+                        static bool s_sphereFilled = false;
+                        if (useSphere != 0) {
+                            if (!s_sphereFilled) {
+                                m_densityVolume->FillAnalyticSphere(
+                                    m_cmdList.Get(), DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f), 0.30f, 1.0f);
+                                s_sphereFilled = true;
+                            }
+                        } else {
+                            m_densityVolume->FillAnalytic(m_cmdList.Get(), totalTime);
+                        }
                     }
                 }
 
@@ -1197,6 +1286,15 @@ void App::renderFrameDXR() {
             // APP_0003: Guard DXR dispatch behind validity checks and env override
             bool dxrDisabled = Env::GetBool("PLASMADX_DISABLE_DXR", false); // default: DXR enabled for RT lighting
             bool canDoDXR = (!dxrDisabled && m_dxrPipeline && m_dxrPipeline->GetPSO() && m_sbt && m_tlasResult);
+            // Prefer compute metaball (lava lamp) path when requested to avoid DXR raygen overwriting HDR
+            if (!dxrDisabled) {
+                int useCurl = Env::GetInt("PLASMADX_USE_CURL", 1);
+                bool useLavaLamp = Env::GetBool("PLASMADX_LAVA_LAMP", true);
+                if (useCurl == 0 && useLavaLamp) {
+                    canDoDXR = false; // keep compute HDR content
+                    LOGI("DXR: Disabled this frame (Lava Lamp mode active)");
+                }
+            }
 
             if (canDoDXR) {
 				// DXR path: dispatch rays to HDR texture
@@ -1252,25 +1350,80 @@ void App::renderFrameDXR() {
                         float mode; float bg; float pad[2];
                     } gp{};
 
-                    // Animate a sweeping spotlight around the sphere
+                    // Check for torchlight demo mode
+                    bool torchDemo = (getenv("PLASMADX_TORCHLIGHT_DEMO") != nullptr);
                     static float tAccum = 0.0f; tAccum += 0.016f;
-                    float angle = tAccum * 0.7f;
-                    float radius = 2.0f;
-                    gp.lightPos[0] = -cosf(angle) * radius;
-                    gp.lightPos[1] = 0.9f + 0.2f * sinf(angle * 0.5f);
-                    gp.lightPos[2] = -2.0f + 0.3f * sinf(angle);
-                    // Light looks at origin (sphere center)
-                    gp.lightDir[0] = 0.0f - gp.lightPos[0];
-                    gp.lightDir[1] = 0.0f - gp.lightPos[1];
-                    gp.lightDir[2] = 0.0f - gp.lightPos[2];
-                    // Inner/outer cone (degrees -> cos)
-                    float innerDeg = 12.0f, outerDeg = 20.0f;
-                    gp.innerCos = cosf(innerDeg * 3.14159265f / 180.0f);
-                    gp.outerCos = cosf(outerDeg * 3.14159265f / 180.0f);
-                    gp.lightColor[0] = 1.0f; gp.lightColor[1] = 0.95f; gp.lightColor[2] = 0.85f;
+
+                    if (torchDemo) {
+                        // TORCHLIGHT DEMO MODE: Mouse-controlled spotlight
+
+                        if (m_torchOn) {
+                            // Mouse-controlled torch: map mouse to 3D sphere surface
+                            float mouseNDCX = (m_mouseX - 0.5f) * 2.0f;  // -1 to 1
+                            float mouseNDCY = (0.5f - m_mouseY) * 2.0f;  // -1 to 1 (flip Y)
+
+                            // Convert 2D mouse to spherical coordinates for realistic 3D movement
+                            float azimuth = mouseNDCX * 3.14159f;      // -π to π (horizontal rotation)
+                            float elevation = mouseNDCY * 1.57079f;   // -π/2 to π/2 (vertical angle)
+
+                            // Clamp elevation to reasonable range to prevent light going behind sphere
+                            elevation = std::max(-1.2f, std::min(1.2f, elevation));
+
+                            // Position light on a sphere around the volume (radius = 3.0)
+                            float lightRadius = 3.0f;
+                            gp.lightPos[0] = lightRadius * cos(elevation) * sin(azimuth);
+                            gp.lightPos[1] = lightRadius * sin(elevation);
+                            gp.lightPos[2] = lightRadius * cos(elevation) * cos(azimuth);
+
+                            // Light direction points toward sphere center (0,0,0)
+                            float len = sqrt(gp.lightPos[0]*gp.lightPos[0] + gp.lightPos[1]*gp.lightPos[1] + gp.lightPos[2]*gp.lightPos[2]);
+                            gp.lightDir[0] = -gp.lightPos[0] / len;
+                            gp.lightDir[1] = -gp.lightPos[1] / len;
+                            gp.lightDir[2] = -gp.lightPos[2] / len;
+
+                            // Color cycling with C key
+                            float colors[][3] = {
+                                {1.2f, 1.0f, 0.8f},  // Warm torch
+                                {0.8f, 1.0f, 1.2f},  // Cool blue
+                                {1.5f, 0.3f, 0.3f},  // Red
+                                {0.3f, 1.5f, 0.3f},  // Green
+                                {1.2f, 0.3f, 1.2f}   // Purple
+                            };
+                            gp.lightColor[0] = colors[m_lightColorIndex][0];
+                            gp.lightColor[1] = colors[m_lightColorIndex][1];
+                            gp.lightColor[2] = colors[m_lightColorIndex][2];
+                        } else {
+                            // Torch off: no light
+                            gp.lightPos[0] = 0.0f; gp.lightPos[1] = 0.0f; gp.lightPos[2] = -10.0f; // Far away
+                            gp.lightDir[0] = 0.0f; gp.lightDir[1] = 0.0f; gp.lightDir[2] = 1.0f;
+                            gp.lightColor[0] = 0.0f; gp.lightColor[1] = 0.0f; gp.lightColor[2] = 0.0f; // Black
+                        }
+
+                        // Torch settings
+                        gp.innerCos = cosf(12.0f * 3.14159265f / 180.0f); // 12 degrees
+                        gp.outerCos = cosf(25.0f * 3.14159265f / 180.0f); // 25 degrees
+                        gp.bg = 0.02f; // Very dark background
+                    } else {
+                        // Default: sweeping spotlight animation
+                        float angle = tAccum * 0.7f;
+                        float radius = 2.0f;
+                        gp.lightPos[0] = -cosf(angle) * radius;
+                        gp.lightPos[1] = 0.9f + 0.2f * sinf(angle * 0.5f);
+                        gp.lightPos[2] = -2.0f + 0.3f * sinf(angle);
+                        // Light looks at origin (sphere center)
+                        gp.lightDir[0] = 0.0f - gp.lightPos[0];
+                        gp.lightDir[1] = 0.0f - gp.lightPos[1];
+                        gp.lightDir[2] = 0.0f - gp.lightPos[2];
+
+                        // Standard settings
+                        gp.innerCos = cosf(12.0f * 3.14159265f / 180.0f);
+                        gp.outerCos = cosf(20.0f * 3.14159265f / 180.0f);
+                        gp.lightColor[0] = 1.0f; gp.lightColor[1] = 0.95f; gp.lightColor[2] = 0.85f;
+                        gp.bg = 1.0f; // Normal background
+                    }
+
                     gp.time = tAccum;
-                    gp.mode = 1.0f; // reserved
-                    gp.bg = 1.0f;   // background intensity multiplier
+                    gp.mode = torchDemo ? 2.0f : 1.0f; // Mode 2 = torchlight demo
 
                     m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GlobalParams)/4, &gp, 0);
 

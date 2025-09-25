@@ -19,6 +19,9 @@
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\74b02f17792dfb1c771b925f44c6399f\density_fill_sphere.dxil.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\74b02f17792dfb1c771b925f44c6399f\metaball_density_fill.dxil.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\74b02f17792dfb1c771b925f44c6399f\particles_debug_pattern.dxil.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>

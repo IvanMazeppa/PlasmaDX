@@ -58,6 +58,16 @@ endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd
+^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\74B02F17792DFB1C771B925F44C6399F\METABALL_DENSITY_FILL.DXIL.RULE
+setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/metaball_density_fill.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/metaball_density_fill.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
 ^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\74B02F17792DFB1C771B925F44C6399F\PARTICLES_DEBUG_PATTERN.DXIL.RULE
 setlocal
 D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/particles_debug_pattern.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/particles_debug_pattern.hlsl
@@ -108,7 +118,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 ^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\CMAKELISTS.TXT
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -SD:/Users/dilli/AndroidStudioProjects/PlasmaDX -BD:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022 --check-stamp-file D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022/CMakeFiles/generate.stamp
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SD:/Users/dilli/AndroidStudioProjects/PlasmaDX -BD:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022 --check-stamp-file D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022/CMakeFiles/generate.stamp
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone

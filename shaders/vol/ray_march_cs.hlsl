@@ -27,6 +27,8 @@ cbuffer VolumeConstants : register(b1) {
     float2 g_screenSize;     // Screen resolution
     float g_time;            // Animation time
     float g_exposure;        // HDR exposure control
+    // Anisotropy g for Henyey-Greenstein phase (-0.6..0.6)
+    float g_phaseG;
     // VOL_0003A/B: Debug mode controls
     // 0 = Off, 1 = RayDir visualization, 2 = Bounds/AABB visualization, 3 = Density probe (single sample at entry)
     uint g_debugMode;
@@ -61,14 +63,18 @@ bool IntersectAABB(float3 rayOrigin, float3 rayDir, float3 boxMin, float3 boxMax
     return tFar >= tNear && tFar > 0.0;
 }
 
-// Simple lighting calculation with Beer-Lambert absorption
-float3 ComputeLighting(float3 worldPos, float density) {
+// Simple lighting calculation with Beer-Lambert absorption and HG phase
+float3 ComputeLighting(float3 worldPos, float density, float3 viewDir) {
     if (density <= 0.0001) {
         return float3(0, 0, 0);
     }
 
-    // Basic isotropic scattering phase function
-    float phase = 1.0 / (4.0 * 3.14159265);
+    // Henyey-Greenstein phase
+    float cosTheta = dot(normalize(g_lightDirection), normalize(-viewDir));
+    float g = clamp(g_phaseG, -0.6, 0.6);
+    float denom = 1.0 + g*g - 2.0*g*cosTheta;
+    float phase = (1.0 - g*g) / pow(max(denom, 1e-3), 1.5);
+    phase *= 0.25 / 3.14159265; // approximate normalization
 
     // In-scattering: light scattered toward the camera
     float3 scattering = g_lightColor * density * phase;
@@ -177,7 +183,7 @@ void main(uint3 id : SV_DispatchThreadID) {
 
         if (density > 0.0001) {
             // Compute in-scattering at this sample point
-            float3 lighting = ComputeLighting(worldPos, density);
+            float3 lighting = ComputeLighting(worldPos, density, rayDir);
 
             // Beer-Lambert law: absorption = density * coefficient * step_size
             float absorption = density * g_absorption * g_stepSize;

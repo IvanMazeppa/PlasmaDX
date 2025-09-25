@@ -29,6 +29,7 @@ struct VolumeConstants {
     XMFLOAT2 screenSize;
     float time;
     float exposure;
+    float phaseG;
     uint32_t debugMode; // VOL_0003A
     XMFLOAT3 pad;       // padding
 };
@@ -250,6 +251,7 @@ void RayMarcher::March(ComPtr<ID3D12GraphicsCommandList4> cmdList,
         volumeData->screenSize = m_params.screenSize;
         volumeData->time = time;
         volumeData->exposure = m_params.exposure;
+        volumeData->phaseG = m_params.phaseG;
         volumeData->debugMode = m_debugMode; // VOL_0003A
 
         m_volumeConstantBuffer->Unmap(0, nullptr);

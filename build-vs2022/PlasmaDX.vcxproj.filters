@@ -46,6 +46,9 @@
     <ClCompile Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\RayMarcher.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\MetaballSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\core\App.h">
@@ -88,6 +91,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\RayMarcher.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\MetaballSystem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

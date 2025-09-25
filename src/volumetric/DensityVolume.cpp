@@ -1,4 +1,5 @@
 #include "DensityVolume.h"
+#include "MetaballSystem.h"
 #include "../utils/Logger.h"
 #include "../utils/DescriptorHeap.h"
 #include <d3dx12/d3dx12.h>
@@ -667,4 +668,146 @@ void DensityVolume::AdvectCurl(ComPtr<ID3D12GraphicsCommandList4> cmdList,
 
     // Swap src/dst for next frame
     m_srcIsA = !m_srcIsA;
+}
+
+void DensityVolume::FillMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, MetaballSystem* metaballSystem) {
+    if (!metaballSystem || !m_densityA || !m_densityB) {
+        LOGW("FillMetaballs: Invalid metaball system or density textures");
+        return;
+    }
+
+    // Lazy initialize metaball pipeline if needed
+    if (!m_metaballPSO || !m_metaballRootSig) {
+        ComPtr<ID3D12Device> device;
+        m_densityA->GetDevice(IID_PPV_ARGS(&device));
+
+        // Load metaball shader
+        std::vector<uint8_t> shaderData;
+        std::vector<std::string> possiblePaths = {
+            "shaders/vol/metaball_density_fill.dxil",
+            "shaders/metaball_density_fill.dxil",
+            "../shaders/vol/metaball_density_fill.dxil"
+        };
+
+        std::ifstream file;
+        for (const auto& path : possiblePaths) {
+            file.open(path, std::ios::binary | std::ios::ate);
+            if (file.is_open()) {
+                size_t size = file.tellg();
+                file.seekg(0, std::ios::beg);
+                shaderData.resize(size);
+                file.read(reinterpret_cast<char*>(shaderData.data()), size);
+                file.close();
+                LOGI("Loaded metaball shader from: " + path);
+                break;
+            }
+        }
+
+        if (shaderData.empty()) {
+            LOGW("Could not find metaball_density_fill.dxil, falling back to analytic fill");
+            FillAnalytic(cmdList, 0.0f);
+            return;
+        }
+
+        // Create root signature for metaball shader
+        // Layout: UAV (u0), SRV for metaballs (t0), CBV for constants (b0)
+        D3D12_ROOT_PARAMETER1 rootParams[3] = {};
+
+        // UAV for density texture (u0)
+        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_DESCRIPTOR_RANGE1 uavRange = {};
+        uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        uavRange.NumDescriptors = 1;
+        uavRange.BaseShaderRegister = 0;
+        uavRange.RegisterSpace = 0;
+        uavRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        rootParams[0].DescriptorTable.NumDescriptorRanges = 1;
+        rootParams[0].DescriptorTable.pDescriptorRanges = &uavRange;
+
+        // SRV for metaball data (t0)
+        rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_DESCRIPTOR_RANGE1 srvRange = {};
+        srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srvRange.NumDescriptors = 1;
+        srvRange.BaseShaderRegister = 0;
+        srvRange.RegisterSpace = 0;
+        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
+        rootParams[1].DescriptorTable.pDescriptorRanges = &srvRange;
+
+        // CBV for metaball constants (b0)
+        rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        rootParams[2].Descriptor.ShaderRegister = 0;
+        rootParams[2].Descriptor.RegisterSpace = 0;
+
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc = {};
+        rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        rootSigDesc.Desc_1_1.NumParameters = 3;
+        rootSigDesc.Desc_1_1.pParameters = rootParams;
+        rootSigDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+        ComPtr<ID3DBlob> signature, error;
+        HRESULT hr = D3D12SerializeVersionedRootSignature(&rootSigDesc, &signature, &error);
+        if (FAILED(hr)) {
+            LOGE("Failed to serialize metaball root signature");
+            return;
+        }
+
+        hr = device->CreateRootSignature(0, signature->GetBufferPointer(),
+            signature->GetBufferSize(), IID_PPV_ARGS(&m_metaballRootSig));
+        if (FAILED(hr)) {
+            LOGE("Failed to create metaball root signature");
+            return;
+        }
+
+        // Create PSO
+        D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = m_metaballRootSig.Get();
+        psoDesc.CS.pShaderBytecode = shaderData.data();
+        psoDesc.CS.BytecodeLength = shaderData.size();
+
+        hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_metaballPSO));
+        if (FAILED(hr)) {
+            LOGE("Failed to create metaball PSO");
+            return;
+        }
+
+        LOGI("Metaball pipeline initialized successfully");
+    }
+
+    // Update metaball physics and upload to GPU
+    metaballSystem->UploadToGPU(cmdList);
+
+    // Transition density textures to UAV state
+    transitionResource(cmdList, m_densityA.Get(), m_stateA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transitionResource(cmdList, m_densityB.Get(), m_stateB, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    // Set compute pipeline
+    cmdList->SetComputeRootSignature(m_metaballRootSig.Get());
+    cmdList->SetPipelineState(m_metaballPSO.Get());
+
+    // Bind UAV for current density texture
+    D3D12_GPU_DESCRIPTOR_HANDLE currentUAV = m_srcIsA ? m_uavGpuA : m_uavGpuB;
+    cmdList->SetComputeRootDescriptorTable(0, currentUAV);
+
+    // Bind SRV for metaball structured buffer
+    cmdList->SetComputeRootDescriptorTable(1, metaballSystem->GetMetaballSRV());
+
+    // Bind metaball constant buffer
+    cmdList->SetComputeRootConstantBufferView(2, metaballSystem->GetConstantBuffer()->GetGPUVirtualAddress());
+
+    // Dispatch compute shader
+    uint32_t groups = (m_dimension + 7) / 8;
+    cmdList->Dispatch(groups, groups, groups);
+
+    // UAV barrier to ensure writes are visible
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = m_srcIsA ? m_densityA.Get() : m_densityB.Get();
+    cmdList->ResourceBarrier(1, &barrier);
+
+    LOGI("Metaball density fill dispatched successfully");
 }
