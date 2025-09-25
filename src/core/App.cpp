@@ -914,22 +914,29 @@ void App::buildAccelerationStructures() {
 
 	PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Acceleration Structures");
 
-	// Build BLAS for triangle (stub)
+	// Build BLAS for triangle
 	{
 		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build BLAS");
 		if (!m_asBuilder->CreateTriangleBLAS(m_blasResult, m_blasScratch)) {
-			LOGE("Failed to create triangle BLAS stub");
+			LOGE("Failed to create triangle BLAS");
 			return;
 		}
+
+		// Execute BLAS build on GPU
+		m_asBuilder->BuildBLAS(m_cmdList.Get(), m_blasResult.Get(), m_blasScratch.Get());
 	}
 
-	// Build TLAS (stub - no instances needed for stub)
+	// Build TLAS
 	{
 		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build TLAS");
 		if (!m_asBuilder->BuildTLAS(m_tlasResult, m_tlasScratch, m_instanceDescs)) {
-			LOGE("Failed to create TLAS stub");
+			LOGE("Failed to create TLAS");
 			return;
 		}
+
+		// Execute TLAS build on GPU
+		m_asBuilder->BuildTLASGPU(m_cmdList.Get(), m_tlasResult.Get(), m_tlasScratch.Get(),
+			m_instanceDescs.Get(), m_blasResult.Get());
 	}
 
 	// Execute and wait
@@ -963,7 +970,7 @@ void App::createDXRPipeline() {
     uavRange.RegisterSpace = 0;
     uavRange.OffsetInDescriptorsFromTableStart = 0;
 
-    D3D12_ROOT_PARAMETER params[2]{};
+    D3D12_ROOT_PARAMETER params[3]{};
 
     // TLAS SRV as root SRV (t0)
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
@@ -977,8 +984,15 @@ void App::createDXRPipeline() {
     params[1].DescriptorTable.pDescriptorRanges = &uavRange;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
+    // Root constants for b0 (GlobalParams: 16 floats)
+    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[2].Constants.Num32BitValues = 16;
+    params[2].Constants.ShaderRegister = 0; // b0
+    params[2].Constants.RegisterSpace = 0;
+    params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
     D3D12_ROOT_SIGNATURE_DESC rootSigDesc{};
-    rootSigDesc.NumParameters = 2;
+    rootSigDesc.NumParameters = 3;
     rootSigDesc.pParameters = params;
     rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
@@ -1229,6 +1243,36 @@ void App::renderFrameDXR() {
                     uavMsg << "DXR: UAV handle ptr=0x" << std::hex << uavHandle.ptr << ", index=" << std::dec << m_hdrUavIndex;
                     LOGI(uavMsg.str());
                     m_cmdList->SetComputeRootDescriptorTable(1, uavHandle);
+
+                    // Set per-frame root constants (b0)
+                    struct GlobalParams {
+                        float lightPos[3]; float time;
+                        float lightDir[3]; float innerCos;
+                        float lightColor[3]; float outerCos;
+                        float mode; float bg; float pad[2];
+                    } gp{};
+
+                    // Animate a sweeping spotlight around the sphere
+                    static float tAccum = 0.0f; tAccum += 0.016f;
+                    float angle = tAccum * 0.7f;
+                    float radius = 2.0f;
+                    gp.lightPos[0] = -cosf(angle) * radius;
+                    gp.lightPos[1] = 0.9f + 0.2f * sinf(angle * 0.5f);
+                    gp.lightPos[2] = -2.0f + 0.3f * sinf(angle);
+                    // Light looks at origin (sphere center)
+                    gp.lightDir[0] = 0.0f - gp.lightPos[0];
+                    gp.lightDir[1] = 0.0f - gp.lightPos[1];
+                    gp.lightDir[2] = 0.0f - gp.lightPos[2];
+                    // Inner/outer cone (degrees -> cos)
+                    float innerDeg = 12.0f, outerDeg = 20.0f;
+                    gp.innerCos = cosf(innerDeg * 3.14159265f / 180.0f);
+                    gp.outerCos = cosf(outerDeg * 3.14159265f / 180.0f);
+                    gp.lightColor[0] = 1.0f; gp.lightColor[1] = 0.95f; gp.lightColor[2] = 0.85f;
+                    gp.time = tAccum;
+                    gp.mode = 1.0f; // reserved
+                    gp.bg = 1.0f;   // background intensity multiplier
+
+                    m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GlobalParams)/4, &gp, 0);
 
                     // Add UAV barrier before DispatchRays (GPT-5 recommendation from MCP research)
                     LOGI("DXR: Adding UAV barrier before DispatchRays");

@@ -16,6 +16,15 @@ struct VolumeHitInfo {
 RaytracingAccelerationStructure g_scene : register(t0);
 RWTexture2D<float4> g_output : register(u0);
 
+// Global parameters via root constants (b0)
+cbuffer GlobalParams : register(b0)
+{
+    float3 g_lightPos; float g_time;           // 0..3
+    float3 g_lightDir; float g_innerCos;       // 4..7
+    float3 g_lightColor; float g_outerCos;     // 8..11
+    float g_mode; float g_bg; float2 g_pad;    // 12..15
+}
+
 
 // Forward declarations for volumetric rendering
 void ExecuteVolumetricHit(inout RayPayload payload, float3 rayOrigin, float3 rayDir, float tNear, float tFar, float time);
@@ -146,16 +155,12 @@ void RayGen() {
 
 [shader("miss")]
 void Miss(inout RayPayload payload) {
-    // DEBUG: Yellow miss shader - easy to distinguish from magenta raygen
-    // This will show if rays are missing geometry (empty TLAS/BLAS issue)
+    // Dark room background to emphasize spotlight
     float3 direction = WorldRayDirection();
     float t = 0.5 * (direction.y + 1.0);
-
-    // Yellow gradient instead of blue
-    float3 topColor = float3(1.0, 1.0, 0.5);   // Light yellow
-    float3 bottomColor = float3(0.8, 0.6, 0.0); // Dark yellow
+    float3 topColor = float3(0.02, 0.02, 0.025) * g_bg;
+    float3 bottomColor = float3(0.0, 0.0, 0.0) * g_bg;
     float3 skyColor = lerp(bottomColor, topColor, t);
-
     payload.color = float4(skyColor, 1.0);
 }
 
@@ -200,18 +205,16 @@ void ExecuteVolumetricHit(inout RayPayload payload, float3 rayOrigin, float3 ray
     float3 sphereCenter = float3(0.0, 0.0, 0.0);
     float sphereRadius = 1.2;
 
-    // Spotlight setup (fixed for demo)
-    float3 lightPos  = float3(-1.6, 0.9, -2.0);
-    float3 lightDir  = normalize(sphereCenter - lightPos);
-    float  innerDeg  = 12.0;
-    float  outerDeg  = 20.0;
-    float  innerCos  = cos(radians(innerDeg));
-    float  outerCos  = cos(radians(outerDeg));
-    float3 lightCol  = float3(1.0, 0.95, 0.85);
-    float3 ambient   = float3(0.05, 0.05, 0.06);
+    // Spotlight setup from root constants (animated in C++)
+    float3 lightPos  = g_lightPos;
+    float3 lightDir  = normalize(g_lightDir);
+    float  innerCos  = g_innerCos;
+    float  outerCos  = g_outerCos;
+    float3 lightCol  = g_lightColor;
+    float3 ambient   = float3(0.03, 0.03, 0.035);
 
     // March through the sphere segment [tNear, tFar]
-    const int   kSteps   = 48;
+    const int   kSteps   = 64;
     float       t        = tNear;
     float       dt       = (tFar - tNear) / kSteps;
     float3      accum    = 0.0.xxx;
