@@ -47,6 +47,47 @@ class DensityVolume;
 class RayMarcher;
 class MetaballSystem;
 
+// DXR 1.2 and SER feature flags structure
+struct DXRFeatures {
+	// Core DXR support
+	bool dxrSupported = false;
+	D3D12_RAYTRACING_TIER raytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+
+	// DXR 1.1 features
+	bool inlineRaytracing = false;        // RayQuery support
+	bool raytracingPipelineTracing = false;
+
+	// DXR 1.2 features (RTX 40 series)
+	bool shaderExecutionReordering = false;  // SER support
+	bool opacityMicromaps = false;           // OMM support
+	bool displacementMicromaps = false;      // DMM support
+
+	// GPU Work Creation
+	bool gpuWorkCreation = false;
+
+	// Hardware capabilities
+	bool isAdaLovelace = false;    // RTX 40 series detection
+	bool isAmpere = false;          // RTX 30 series detection
+	bool isTuring = false;          // RTX 20 series detection
+
+	// Memory info
+	uint32_t dedicatedVideoMemory = 0;  // In MB
+	uint32_t l2CacheSize = 0;           // In MB (32MB for RTX 4060Ti)
+
+	void LogFeatures() const;
+};
+
+// SER (Shader Execution Reordering) configuration
+struct SERConfig {
+	bool enabled = false;                // Runtime enable/disable
+	uint32_t coherenceHint = 0;          // Coherence hint for SER
+	uint32_t reorderingMode = 0;         // SER reordering mode
+
+	// Performance metrics
+	float lastFrameTimeMs = 0.0f;
+	float serGainPercent = 0.0f;
+};
+
 class App {
 public:
 	App();
@@ -73,6 +114,10 @@ private:
 	void cleanup();
 	void onResize(UINT w, UINT h);
 	void checkDXRSupport();
+	void checkAdvancedDXRFeatures();
+	void detectGPUArchitecture();
+	void toggleSER();  // Toggle SER at runtime
+	bool initializeDXR12Features();
 	void checkDeviceRemoved(HRESULT hr);
 	void setupInfoQueue();
 	void dumpInfoQueueMessages();
@@ -104,7 +149,11 @@ private:
 
 	Renderer* m_renderer = nullptr;
 
-	// DXR support
+	// DXR support and features
+	DXRFeatures m_dxrFeatures;
+	SERConfig m_serConfig;
+
+	// Legacy compatibility flags (kept for backward compatibility)
 	bool m_dxrSupported = false;
 	D3D12_RAYTRACING_TIER m_dxrTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
 
@@ -128,6 +177,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_hdrTexture;
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
+
+	// DXR SRV descriptors for descriptor table binding
+	UINT m_tlasSrvIndex = UINT_MAX;     // TLAS SRV for descriptor table (t0)
+	UINT m_densityVolumeSrvIndex = UINT_MAX;  // Density volume SRV for descriptor table (t1)
 	bool m_hdrIsInSRVForRead = false; // Tracks HDR state for correct transitions
 
 	// Descriptor heap allocator (DXR_0021)
@@ -144,6 +197,45 @@ private:
     float m_mouseX = 0.5f, m_mouseY = 0.5f; // Normalized mouse position
     int m_lightColorIndex = 0;    // For C key cycling
 
+    // DXR additive blend over compute
+    bool m_dxrBlend = false;
+    float m_dxrBlendScale = 1.0f;
+
+    // Demo mode control
+    enum class DemoMode {
+        SphereRT = 1,           // Pure DXR sphere baseline
+        TorchlightDemo = 2,     // Interactive torch control
+        VolumetricDemo = 3,     // Compact volumetric with moving elements
+        VolumetricSculpture = 4, // Static complex volumetric shape with sweeping RT lighting
+        PlasmaAccretion = 5,     // Orbital plasma accretion disk with volumetric self-shadowing
+        VoxelParticles = 6,      // Voxel-based particle simulation (debug/development)
+        MetaballSPH = 7          // SPH metaball physics with density field rendering
+    };
+    DemoMode m_demoMode = DemoMode::SphereRT;
+
+    // Plasma Accretion Disk physics controls (Mode 5)
+    float m_plasmaAngularVel = 0.8f;      // Angular velocity multiplier (0.1-2.0)
+    float m_plasmaGravityExp = 1.5f;      // Gravity strength exponent (0.5-2.5)
+    float m_plasmaDensity = 1.0f;         // Particle density multiplier (0.5-3.0)
+    float m_plasmaDiskThickness = 0.8f;   // Disk thickness multiplier (0.5-2.0)
+    float m_plasmaCoreTemp = 2.0f;        // Core temperature intensity
+    float m_plasmaMidTemp = 1.5f;         // Mid-disk temperature intensity
+    float m_plasmaEdgeTemp = 1.0f;        // Edge temperature intensity
+    int m_plasmaQuality = 200;            // Ray marching steps (100-300)
+    float m_plasmaOffsetX = 0.0f;         // Gravity center X offset
+    float m_plasmaOffsetY = 0.0f;         // Gravity center Y offset
+    float m_plasmaOffsetZ = 0.0f;         // Gravity center Z offset
+
+    // Voxel Particle System controls (Mode 6)
+    int m_voxelResolution = 64;           // Voxel grid size (32, 64, 128)
+    float m_voxelWorldSize = 4.0f;        // World space size of voxel grid
+    float m_voxelParticleDensity = 0.8f;  // Base particle density (0.1-2.0)
+    float m_voxelTurbulence = 1.2f;       // Turbulence intensity (0.5-3.0)
+    float m_voxelDissipation = 0.02f;     // Particle dissipation rate (0.01-0.1)
+    float m_voxelAdvection = 1.0f;        // Velocity advection strength (0.5-2.0)
+    float m_voxelTemperature = 1.5f;      // Temperature simulation intensity (0.5-3.0)
+    bool m_voxelReset = false;            // Reset voxel grid flag
+
 	// Particle system (VOL_0001)
 	std::unique_ptr<Particles> m_particles;
 
@@ -155,6 +247,20 @@ private:
 
 	// Metaballs (lava lamp)
 	std::unique_ptr<MetaballSystem> m_metaballSystem;
+
+	// Voxel particle system (Mode 6)
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelDensityTexture;     // 3D texture for particle density
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelVelocityTexture;    // 3D texture for velocity field
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelTemperatureTexture; // 3D texture for temperature
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_voxelUpdatePSO;     // Compute PSO for voxel updates
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_voxelAdvectPSO;     // Compute PSO for advection
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_voxelComputeRS;     // Root signature for voxel compute
+	UINT m_voxelDensitySRVIndex = UINT_MAX;      // SRV index for density texture
+	UINT m_voxelDensityUAVIndex = UINT_MAX;      // UAV index for density texture
+	UINT m_voxelVelocitySRVIndex = UINT_MAX;     // SRV index for velocity texture
+	UINT m_voxelVelocityUAVIndex = UINT_MAX;     // UAV index for velocity texture
+	UINT m_voxelTempSRVIndex = UINT_MAX;         // SRV index for temperature texture
+	UINT m_voxelTempUAVIndex = UINT_MAX;         // UAV index for temperature texture
 
 	// Debug/diagnostics interfaces
 	Microsoft::WRL::ComPtr<ID3D12InfoQueue> m_d3d12InfoQueue;
@@ -173,4 +279,12 @@ private:
 	// HDR output methods (DXR_0018)
 	bool createHDRTexture();
 	void recreateHDRTexture();
+
+	// Voxel particle system methods (Mode 6)
+	bool initializeVoxelSystem();
+	bool createVoxelTextures();
+	bool createVoxelComputePipelines();
+	void updateVoxelSystem(float deltaTime);
+	void resetVoxelGrid();
+	void cleanupVoxelSystem();
 };

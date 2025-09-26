@@ -206,7 +206,7 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT ${RAYMARCH_CS_SHADER_OUTPUT}
-    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${RAYMARCH_CS_SHADER_OUTPUT} ${RAYMARCH_CS_SHADER_SOURCE}
+    COMMAND ${DXC_TOOL} -T cs_6_5 -E main -Fo ${RAYMARCH_CS_SHADER_OUTPUT} ${RAYMARCH_CS_SHADER_SOURCE}
     DEPENDS ${RAYMARCH_CS_SHADER_SOURCE}
     COMMENT "Compiling VOL_0003 ray march compute shader"
 )

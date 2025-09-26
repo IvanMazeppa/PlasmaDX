@@ -19,6 +19,12 @@ struct Metaball {
     float mass = 1.0f;
     float targetRadius = 0.5f;       // For smooth size transitions
     float age = 0.0f;                // For lifecycle effects
+
+    // SPH physics properties
+    float density = 1000.0f;         // Fluid density at this particle
+    float pressure = 0.0f;           // Pressure force
+    XMFLOAT3 pressureForce = { 0.0f, 0.0f, 0.0f };    // Calculated pressure gradient
+    XMFLOAT3 viscosityForce = { 0.0f, 0.0f, 0.0f };   // Viscosity smoothing force
 };
 
 // GPU constant buffer data (256-byte aligned)
@@ -34,10 +40,16 @@ struct alignas(256) MetaballConstants {
     XMFLOAT3 containerCenter = { 0.0f, 0.0f, 0.0f };
     float viscosity = 0.8f;          // Fluid resistance
 
+    // SPH physics parameters
+    float sphSmoothingRadius = 0.12f;  // SPH kernel radius
+    float sphRestDensity = 1000.0f;    // Rest density of fluid
+    float sphPressureConstant = 200.0f; // Pressure multiplier
+    float sphViscosityConstant = 0.5f;  // Viscosity strength
+
     float mergeDistance = 0.3f;      // When metaballs start to merge
     float splitThreshold = 1.5f;     // When large metaballs split
     float noiseStrength = 0.1f;      // Organic motion noise
-    float padding = 0.0f;
+    float plasmaIntensity = 1.0f;    // Overall plasma emission intensity
 };
 
 // GPU metaball data array (tightly packed for shader)
@@ -54,7 +66,7 @@ class DescriptorHeap;
 
 class MetaballSystem {
 public:
-    static const uint32_t MAX_METABALLS = 16;
+    static const uint32_t MAX_METABALLS = 200;  // Increased for realistic plasma simulation
 
     MetaballSystem();
     ~MetaballSystem();
@@ -93,6 +105,18 @@ private:
     void handleMergingAndSplitting();
     void applyContainerConstraints();
     float evaluateMetaballField(const XMFLOAT3& position, const Metaball& metaball) const;
+
+    // SPH physics methods
+    void updateSPHPhysics(float deltaTime);
+    void calculateDensityAndPressure();
+    void calculatePressureForces();
+    void calculateViscosityForces();
+    void integrateSPHForces(float deltaTime);
+
+    // SPH kernel functions
+    float sphKernel(float distance, float smoothingRadius) const;
+    float sphKernelDerivative(float distance, float smoothingRadius) const;
+    XMFLOAT3 sphKernelGradient(const XMFLOAT3& vec, float distance, float smoothingRadius) const;
 
     // Metaball data
     std::vector<Metaball> m_metaballs;

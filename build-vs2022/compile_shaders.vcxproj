@@ -612,7 +612,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\74b02f17792dfb1c771b925f44c6399f\ray_march_cs.dxil.rule">
       <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compiling VOL_0003 ray march compute shader</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
-D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -625,7 +625,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
       <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compiling VOL_0003 ray march compute shader</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
-D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -638,7 +638,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
       <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Compiling VOL_0003 ray march compute shader</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
-D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -651,7 +651,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
       <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Compiling VOL_0003 ray march compute shader</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
-D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone

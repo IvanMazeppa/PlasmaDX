@@ -90,7 +90,7 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 ^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\74B02F17792DFB1C771B925F44C6399F\RAY_MARCH_CS.DXIL.RULE
 setlocal
-D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/vol/ray_march_cs.hlsl
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone

@@ -1,0 +1,49 @@
+PlasmaDX Workspace Rules (Context Seed)
+
+- Project: PlasmaDX - DirectX 12 + DXR 1.2 (SER). Central feature is ray-traced lighting (self-shadowing next). Keep RT lighting working across all modes.
+- Demo goal: First-person, sweeping spotlight in a dark scene; primitive toggle (sphere/cube); yellow background safeguard toggle; WASD + mouse.
+
+Key Files
+- src/core/App.cpp, App.h - app init, input, DXR dispatch, toggles, FPS
+- src/dxr/SBT.cpp - real SBT (aligned records; shader identifiers)
+- src/dxr/ASBuilder.cpp - BLAS/TLAS build
+- shaders/dxr/raytracing_lib.hlsl - raygen/miss/closesthit, camera rays, spotlight volumetric demo, blend
+- shaders/vol/ray_march_cs.hlsl - volumetric ray march; anisotropy g
+- src/volumetric/MetaballSystem.* - metaballs (optional volumetric mode)
+
+Runtime Env Toggles (set before launching PlasmaDX.exe)
+- PLASMADX_DISABLE_DXR: "0" enable, "1" disable
+- PLASMADX_DEBUG_MODE: e.g. "3" for cube-in-dark torch demo
+- PLASMADX_DXR_BLEND: "0|1" toggle additive blend with raster/compute
+- PLASMADX_NO_DEBUG: "1" suppress extra logs/UI
+- PLASMADX_NO_QUIT_ON_REMOVAL: "1" keep app alive if device lost
+
+Input Controls
+- WASD: move; mouse: look
+- F: attach/detach torch to camera
+- C: cycle light colors
+- P / O: increase / decrease metaball count (when enabled)
+- 5 / 6: adjust anisotropy g
+- B: toggle DXR blend
+- N / M: adjust blend scale
+
+DXR Pipeline Expectations
+- Root signature: TLAS SRV (t0), HDR UAV descriptor table (u0), GlobalParams root constants (b0)
+- Ensure SBT record alignment; SRV/UAV heaps bound before DispatchRays; correct barriers around HDR UAV and Present
+
+Agent Guidance
+- Do not remove DXR lighting during refactors; keep a working RT path or add a runtime toggle
+- Prefer non-destructive, localized, readable edits
+- If adding modes, wire via GlobalParams and expose simple hotkeys
+
+WSL Remote Tip
+- Opening a WSL Remote window creates a new chat. To retain context, open the same workspace path via /mnt/d/... so the same .cursor folder is used, and keep this rules file present. If chat resets, paste the seed below into your first WSL message.
+
+Portable Session Seed (paste-once if needed)
+"We are in PlasmaDX (DX12 + DXR 1.2 with SER). DXR RT lighting is the program's core feature and must remain active across modes. Demo focus: first-person, sweeping spotlight in a dark scene; sphere/cube toggle; yellow background safeguard toggle; WASD+mouse; F attach torch; C cycle colors; P/O metaball count; 5/6 anisotropy g; B DXR blend; N/M blend scale. Use files: App.cpp/h, SBT.cpp, ASBuilder.cpp, raytracing_lib.hlsl, ray_march_cs.hlsl, MetaballSystem.*. Keep root sig (TLAS t0, HDR UAV u0, GlobalParams b0), valid SBT, and correct barriers. Maintain performance and clear visuals."
+
+Long-form Context (authoritative prior chat)
+- Use this file as the persistent pointer to the full prior chat: /mnt/d/Users/dilli/AndroidStudioProjects/PlasmaDX/cursor_project_architect.md
+- When an answer depends on prior discussions, consult that document first. Prefer targeted reads by heading/section and search rather than loading the entire file.
+- When citing or quoting from it, include short code references to specific line ranges using the startLine:endLine:filepath format.
+- In fresh WSL chats, assume this document is the project memory. If context resets, start by scanning for the relevant section headings and proceed with focused reads.

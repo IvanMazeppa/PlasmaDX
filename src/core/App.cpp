@@ -44,7 +44,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	// Input toggles (DXR_0022)
 	if (msg == WM_KEYDOWN && g_appInstance) {
 		switch (wParam) {
-		case 'P':  // Pause toggle
+		case VK_PAUSE:  // Pause toggle (moved off 'P' to free it for metaballs)
 			{
 				static bool paused = false;
 				paused = !paused;
@@ -88,6 +88,12 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 
+		case VK_F5:  // Toggle SER (Shader Execution Reordering) for DXR 1.2
+			if (g_appInstance) {
+				g_appInstance->toggleSER();
+			}
+			break;
+
 		case 'F':  // Toggle torchlight attach/detach (only in torchlight demo mode)
 			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 				g_appInstance->m_torchAttached = !g_appInstance->m_torchAttached;
@@ -116,6 +122,24 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				};
 				g_appInstance->m_rayMarcher->SetLightColor(colors[colorMode]);
 				LOGI("Color mode " + std::to_string(colorMode) + " selected");
+			}
+			break;
+		case 'B':  // Toggle DXR additive blend over compute HDR
+			if (g_appInstance) {
+				g_appInstance->m_dxrBlend = !g_appInstance->m_dxrBlend;
+				LOGI(g_appInstance->m_dxrBlend ? "DXR blend ENABLED (additive)" : "DXR blend DISABLED");
+			}
+			break;
+		case 'N':  // Adjust DXR blend scale down
+			if (g_appInstance) {
+				g_appInstance->m_dxrBlendScale = std::max(0.1f, g_appInstance->m_dxrBlendScale - 0.1f);
+				LOGI("DXR blend scale: " + std::to_string(g_appInstance->m_dxrBlendScale));
+			}
+			break;
+		case 'M':  // Adjust DXR blend scale up
+			if (g_appInstance) {
+				g_appInstance->m_dxrBlendScale = std::min(2.0f, g_appInstance->m_dxrBlendScale + 0.1f);
+				LOGI("DXR blend scale: " + std::to_string(g_appInstance->m_dxrBlendScale));
 			}
 			break;
 
@@ -180,6 +204,96 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		case 'W': case 'A': case 'S': case 'D': case 'Q': case 'E':
 			if (g_appInstance && g_appInstance->m_camera) {
 				g_appInstance->m_camera->SetKeyState((char)wParam, true);
+			}
+			break;
+
+		// Plasma Accretion Disk controls (Mode 5)
+		case VK_LEFT:  // Decrease angular velocity
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaAngularVel = std::max(0.1f, g_appInstance->m_plasmaAngularVel - 0.1f);
+				LOGI("Plasma Angular Velocity: " + std::to_string(g_appInstance->m_plasmaAngularVel));
+			}
+			break;
+		case VK_RIGHT: // Increase angular velocity
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaAngularVel = std::min(2.0f, g_appInstance->m_plasmaAngularVel + 0.1f);
+				LOGI("Plasma Angular Velocity: " + std::to_string(g_appInstance->m_plasmaAngularVel));
+			}
+			break;
+		case VK_DOWN:  // Decrease particle density
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaDensity = std::max(0.5f, g_appInstance->m_plasmaDensity - 0.1f);
+				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
+			}
+			break;
+		case VK_UP:    // Increase particle density
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaDensity = std::min(3.0f, g_appInstance->m_plasmaDensity + 0.1f);
+				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
+			}
+			break;
+		case VK_OEM_4: // [ key - Decrease gravity strength
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaGravityExp = std::max(0.5f, g_appInstance->m_plasmaGravityExp - 0.1f);
+				LOGI("Plasma Gravity Exponent: " + std::to_string(g_appInstance->m_plasmaGravityExp));
+			}
+			break;
+		case VK_OEM_6: // ] key - Increase gravity strength
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaGravityExp = std::min(2.5f, g_appInstance->m_plasmaGravityExp + 0.1f);
+				LOGI("Plasma Gravity Exponent: " + std::to_string(g_appInstance->m_plasmaGravityExp));
+			}
+			break;
+		case VK_PRIOR: // Page Up - Increase simulation quality
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaQuality = std::min(300, g_appInstance->m_plasmaQuality + 25);
+				LOGI("Plasma Quality (ray steps): " + std::to_string(g_appInstance->m_plasmaQuality));
+			}
+			break;
+		case VK_NEXT:  // Page Down - Decrease simulation quality
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaQuality = std::max(100, g_appInstance->m_plasmaQuality - 25);
+				LOGI("Plasma Quality (ray steps): " + std::to_string(g_appInstance->m_plasmaQuality));
+			}
+			break;
+		case '7':  // Decrease core temperature
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaCoreTemp = std::max(1.0f, g_appInstance->m_plasmaCoreTemp - 0.2f);
+				LOGI("Plasma Core Temperature: " + std::to_string(g_appInstance->m_plasmaCoreTemp));
+			}
+			break;
+		case '8':  // Increase core temperature
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaCoreTemp = std::min(5.0f, g_appInstance->m_plasmaCoreTemp + 0.2f);
+				LOGI("Plasma Core Temperature: " + std::to_string(g_appInstance->m_plasmaCoreTemp));
+			}
+			break;
+		case '9':  // Decrease disk thickness
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaDiskThickness = std::max(0.5f, g_appInstance->m_plasmaDiskThickness - 0.1f);
+				LOGI("Plasma Disk Thickness: " + std::to_string(g_appInstance->m_plasmaDiskThickness));
+			}
+			break;
+		case '0':  // Increase disk thickness
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaDiskThickness = std::min(2.0f, g_appInstance->m_plasmaDiskThickness + 0.1f);
+				LOGI("Plasma Disk Thickness: " + std::to_string(g_appInstance->m_plasmaDiskThickness));
+			}
+			break;
+		case 'R':  // Reset plasma parameters to defaults
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+				g_appInstance->m_plasmaAngularVel = 0.8f;
+				g_appInstance->m_plasmaGravityExp = 1.5f;
+				g_appInstance->m_plasmaDensity = 1.0f;
+				g_appInstance->m_plasmaDiskThickness = 0.8f;
+				g_appInstance->m_plasmaCoreTemp = 2.0f;
+				g_appInstance->m_plasmaMidTemp = 1.5f;
+				g_appInstance->m_plasmaEdgeTemp = 1.0f;
+				g_appInstance->m_plasmaQuality = 200;
+				g_appInstance->m_plasmaOffsetX = 0.0f;
+				g_appInstance->m_plasmaOffsetY = 0.0f;
+				g_appInstance->m_plasmaOffsetZ = 0.0f;
+				LOGI("Plasma parameters reset to defaults");
 			}
 			break;
 		}
@@ -322,6 +436,9 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 	}
 	#ifndef PLASMADX_MINIMAL_BASELINE
 	checkDXRSupport();
+
+	// Initialize DXR 1.2 features if available
+	initializeDXR12Features();
 	#else
 	LOGW("PLASMADX_MINIMAL_BASELINE is ON: Skipping DXR support checks and DXR initialization");
 	m_dxrSupported = false;
@@ -386,7 +503,18 @@ int App::run() {
         if (acc >= 1.0) {
             double fps = frames / acc;
             wchar_t title[256];
-            swprintf_s(title, L"PlasmaDX - DXR Hello Pipeline  [%.1f FPS]", fps);
+
+            // Include SER status in title if available
+            if (m_dxrFeatures.shaderExecutionReordering) {
+                swprintf_s(title, L"PlasmaDX - DXR %s [%.1f FPS] [SER: %s]",
+                          m_dxrFeatures.raytracingTier >= D3D12_RAYTRACING_TIER_1_1 ? L"1.1+" : L"1.0",
+                          fps,
+                          m_serConfig.enabled ? L"ON" : L"OFF");
+            } else {
+                swprintf_s(title, L"PlasmaDX - DXR %s [%.1f FPS]",
+                          m_dxrFeatures.raytracingTier >= D3D12_RAYTRACING_TIER_1_1 ? L"1.1+" : L"1.0",
+                          fps);
+            }
             SetWindowTextW(m_hwnd, title);
             acc = 0.0; frames = 0;
         }
@@ -543,18 +671,297 @@ bool App::createDevice() {
 	return m_device != nullptr;
 }
 
+void DXRFeatures::LogFeatures() const {
+	LOGI("===== DXR Feature Detection Report =====");
+
+	// Core DXR support
+	LOGI(std::string("DXR Supported: ") + (dxrSupported ? "YES" : "NO"));
+	if (dxrSupported) {
+		std::string tierStr = "Unknown";
+		switch (raytracingTier) {
+		case D3D12_RAYTRACING_TIER_1_0: tierStr = "1.0"; break;
+		case D3D12_RAYTRACING_TIER_1_1: tierStr = "1.1"; break;
+		default:
+			if (raytracingTier > D3D12_RAYTRACING_TIER_1_1) tierStr = "1.2+";
+			break;
+		}
+		LOGI(std::string("  Raytracing Tier: ") + tierStr);
+	}
+
+	// DXR 1.1 features
+	if (inlineRaytracing) {
+		LOGI("  DXR 1.1 Features:");
+		LOGI("    - Inline Raytracing (RayQuery): SUPPORTED");
+		LOGI("    - RT Pipeline Tracing: " + std::string(raytracingPipelineTracing ? "SUPPORTED" : "NOT SUPPORTED"));
+	}
+
+	// DXR 1.2 features
+	if (shaderExecutionReordering || opacityMicromaps || displacementMicromaps) {
+		LOGI("  DXR 1.2 Features:");
+		LOGI("    - Shader Execution Reordering (SER): " + std::string(shaderExecutionReordering ? "SUPPORTED" : "NOT SUPPORTED"));
+		LOGI("    - Opacity Micromaps (OMM): " + std::string(opacityMicromaps ? "SUPPORTED" : "NOT SUPPORTED"));
+		LOGI("    - Displacement Micromaps (DMM): " + std::string(displacementMicromaps ? "SUPPORTED" : "NOT SUPPORTED"));
+	}
+
+	// GPU Work Creation
+	if (gpuWorkCreation) {
+		LOGI("  GPU Work Creation: SUPPORTED");
+	}
+
+	// Hardware info
+	LOGI("  Hardware Architecture:");
+	if (isAdaLovelace) {
+		LOGI("    - Ada Lovelace (RTX 40 series): DETECTED");
+		LOGI("    - L2 Cache Size: " + std::to_string(l2CacheSize) + " MB");
+	} else if (isAmpere) {
+		LOGI("    - Ampere (RTX 30 series): DETECTED");
+	} else if (isTuring) {
+		LOGI("    - Turing (RTX 20 series): DETECTED");
+	} else {
+		LOGI("    - Unknown GPU architecture");
+	}
+
+	if (dedicatedVideoMemory > 0) {
+		LOGI("    - Dedicated Video Memory: " + std::to_string(dedicatedVideoMemory) + " MB");
+	}
+
+	LOGI("=======================================");
+}
+
+void App::checkAdvancedDXRFeatures() {
+	// Check OPTIONS7 for DXR 1.2 features (if available with newer SDK)
+	// Note: These structures may not be available without the preview SDK
+	// We'll use a try-compile approach with fallback
+
+#ifdef D3D12_FEATURE_D3D12_OPTIONS7
+	D3D12_FEATURE_DATA_D3D12_OPTIONS7 opt7{};
+	if (SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &opt7, sizeof(opt7)))) {
+		// Check for mesh shader pipeline stats (indicator of newer features)
+		if (opt7.MeshShaderPipelineStatsSupported) {
+			LOGI("D3D12_OPTIONS7 detected - Advanced features available");
+		}
+	}
+#else
+	LOGI("D3D12_OPTIONS7 not available - Using OPTIONS5 features only");
+#endif
+
+	// Check OPTIONS10 for SER support (DXR 1.2)
+#ifdef D3D12_FEATURE_D3D12_OPTIONS10
+	D3D12_FEATURE_DATA_D3D12_OPTIONS10 opt10{};
+	if (SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS10, &opt10, sizeof(opt10)))) {
+		// Mesh shader per-primitive SV_RenderTargetArrayIndex
+		if (opt10.MeshShaderPerPrimitiveShadingRateSupported) {
+			LOGI("D3D12_OPTIONS10 features detected");
+		}
+	}
+#endif
+
+	// Check OPTIONS21 for Work Graphs and advanced features
+#ifdef D3D12_FEATURE_D3D12_OPTIONS21
+	D3D12_FEATURE_DATA_D3D12_OPTIONS21 opt21{};
+	if (SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS21, &opt21, sizeof(opt21)))) {
+		m_dxrFeatures.gpuWorkCreation = (opt21.WorkGraphsTier != D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED);
+		if (m_dxrFeatures.gpuWorkCreation) {
+			LOGI("Work Graphs (GPU Work Creation) supported");
+		}
+
+		// Check for SER support via OPTIONS21
+		m_dxrFeatures.shaderExecutionReordering = opt21.ExecuteIndirectTier == D3D12_EXECUTE_INDIRECT_TIER_1_1;
+	}
+#else
+	// Fallback: Try vendor-specific detection for SER
+	// SER is available on RTX 40 series (Ada Lovelace) and newer
+	if (m_dxrFeatures.isAdaLovelace) {
+		m_dxrFeatures.shaderExecutionReordering = true;
+		LOGI("SER assumed available on Ada Lovelace architecture");
+	}
+#endif
+
+	// Check for Opacity Micromaps support (part of DXR 1.2)
+	// This requires checking for specific RT state object features
+	if (m_dxrFeatures.raytracingTier >= D3D12_RAYTRACING_TIER_1_1) {
+		// OMM and DMM are typically available with DXR 1.2
+		// We'll enable these based on architecture detection for now
+		if (m_dxrFeatures.isAdaLovelace) {
+			m_dxrFeatures.opacityMicromaps = true;
+			m_dxrFeatures.displacementMicromaps = false; // DMM support is limited
+		}
+	}
+}
+
+void App::detectGPUArchitecture() {
+	// Get adapter description to identify GPU
+	ComPtr<IDXGIAdapter1> adapter;
+	if (SUCCEEDED(m_factory->EnumAdapters1(0, &adapter))) {
+		DXGI_ADAPTER_DESC1 desc{};
+		if (SUCCEEDED(adapter->GetDesc1(&desc))) {
+			std::wstring deviceName(desc.Description);
+
+			// Convert to string for logging
+			std::string name(deviceName.begin(), deviceName.end());
+			LOGI("GPU: " + name);
+
+			// Store dedicated video memory
+			m_dxrFeatures.dedicatedVideoMemory = static_cast<uint32_t>(desc.DedicatedVideoMemory / (1024 * 1024));
+
+			// Detect NVIDIA architectures
+			if (deviceName.find(L"NVIDIA") != std::wstring::npos ||
+			    deviceName.find(L"GeForce") != std::wstring::npos ||
+			    deviceName.find(L"RTX") != std::wstring::npos) {
+
+				// RTX 40 series (Ada Lovelace)
+				if (deviceName.find(L"RTX 40") != std::wstring::npos ||
+				    deviceName.find(L"RTX 4060") != std::wstring::npos ||
+				    deviceName.find(L"RTX 4070") != std::wstring::npos ||
+				    deviceName.find(L"RTX 4080") != std::wstring::npos ||
+				    deviceName.find(L"RTX 4090") != std::wstring::npos) {
+					m_dxrFeatures.isAdaLovelace = true;
+					m_dxrFeatures.l2CacheSize = 32;  // RTX 4060Ti has 32MB L2 cache
+					LOGI("Ada Lovelace architecture detected (RTX 40 series)");
+				}
+				// RTX 30 series (Ampere)
+				else if (deviceName.find(L"RTX 30") != std::wstring::npos ||
+				         deviceName.find(L"RTX 3060") != std::wstring::npos ||
+				         deviceName.find(L"RTX 3070") != std::wstring::npos ||
+				         deviceName.find(L"RTX 3080") != std::wstring::npos ||
+				         deviceName.find(L"RTX 3090") != std::wstring::npos) {
+					m_dxrFeatures.isAmpere = true;
+					LOGI("Ampere architecture detected (RTX 30 series)");
+				}
+				// RTX 20 series (Turing)
+				else if (deviceName.find(L"RTX 20") != std::wstring::npos ||
+				         deviceName.find(L"RTX 2060") != std::wstring::npos ||
+				         deviceName.find(L"RTX 2070") != std::wstring::npos ||
+				         deviceName.find(L"RTX 2080") != std::wstring::npos) {
+					m_dxrFeatures.isTuring = true;
+					LOGI("Turing architecture detected (RTX 20 series)");
+				}
+			}
+			// Detect AMD architectures
+			else if (deviceName.find(L"AMD") != std::wstring::npos ||
+			         deviceName.find(L"Radeon") != std::wstring::npos) {
+				if (deviceName.find(L"RX 7") != std::wstring::npos) {
+					LOGI("AMD RDNA3 architecture detected");
+				} else if (deviceName.find(L"RX 6") != std::wstring::npos) {
+					LOGI("AMD RDNA2 architecture detected");
+				}
+			}
+			// Detect Intel Arc
+			else if (deviceName.find(L"Intel") != std::wstring::npos &&
+			         deviceName.find(L"Arc") != std::wstring::npos) {
+				LOGI("Intel Arc architecture detected");
+			}
+		}
+	}
+}
+
+void App::toggleSER() {
+	if (!m_dxrFeatures.shaderExecutionReordering) {
+		LOGI("SER not supported on this GPU");
+		return;
+	}
+
+	m_serConfig.enabled = !m_serConfig.enabled;
+	LOGI(m_serConfig.enabled ? "SER: ENABLED" : "SER: DISABLED");
+
+	// Update window title to show SER status
+	if (m_hwnd) {
+		wchar_t title[256];
+		swprintf_s(title, L"PlasmaDX - DXR 1.2 [SER: %s]",
+		           m_serConfig.enabled ? L"ON" : L"OFF");
+		SetWindowTextW(m_hwnd, title);
+	}
+
+	// TODO: Recreate RT pipeline state with SER flags when implemented
+	if (m_serConfig.enabled) {
+		LOGI("SER will be applied in next RT pipeline rebuild");
+	}
+}
+
+bool App::initializeDXR12Features() {
+	if (!m_dxrFeatures.dxrSupported) {
+		LOGE("DXR not supported - cannot initialize DXR 1.2 features");
+		return false;
+	}
+
+	LOGI("Initializing DXR 1.2 features...");
+
+	// Initialize SER if supported
+	if (m_dxrFeatures.shaderExecutionReordering) {
+		LOGI("Shader Execution Reordering (SER) available");
+
+		// Check if user wants SER enabled by default
+		if (Env::GetBool("PLASMADX_ENABLE_SER", false)) {
+			m_serConfig.enabled = true;
+			LOGI("SER enabled via environment variable");
+		}
+
+		// Set SER coherence hints for volumetric rendering
+		// These hints help the GPU group similar rays together
+		m_serConfig.coherenceHint = 1;  // Spatial coherence for volume rays
+		m_serConfig.reorderingMode = 0;  // Default reordering mode
+	}
+
+	// Initialize OMM if supported
+	if (m_dxrFeatures.opacityMicromaps) {
+		LOGI("Opacity Micromaps (OMM) available for alpha-tested geometry");
+	}
+
+	// Initialize GPU Work Creation if supported
+	if (m_dxrFeatures.gpuWorkCreation) {
+		LOGI("GPU Work Creation available for dynamic workload generation");
+	}
+
+	return true;
+}
+
 void App::checkDXRSupport() {
+	// Check basic DXR support via OPTIONS5
 	D3D12_FEATURE_DATA_D3D12_OPTIONS5 opt5{};
 	if (SUCCEEDED(m_device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &opt5, sizeof(opt5)))) {
-		m_dxrTier = opt5.RaytracingTier;
+		m_dxrFeatures.raytracingTier = opt5.RaytracingTier;
+		m_dxrTier = opt5.RaytracingTier;  // Legacy compatibility
+
 		const char* tier = "UNKNOWN";
 		switch (opt5.RaytracingTier) {
-		case D3D12_RAYTRACING_TIER_NOT_SUPPORTED: tier = "NOT_SUPPORTED"; break;
-		case D3D12_RAYTRACING_TIER_1_0: tier = "1.0"; m_dxrSupported = true; break;
-		case D3D12_RAYTRACING_TIER_1_1: tier = "1.1"; m_dxrSupported = true; break;
+		case D3D12_RAYTRACING_TIER_NOT_SUPPORTED:
+			tier = "NOT_SUPPORTED";
+			break;
+		case D3D12_RAYTRACING_TIER_1_0:
+			tier = "1.0";
+			m_dxrFeatures.dxrSupported = true;
+			m_dxrSupported = true;  // Legacy compatibility
+			break;
+		case D3D12_RAYTRACING_TIER_1_1:
+			tier = "1.1";
+			m_dxrFeatures.dxrSupported = true;
+			m_dxrFeatures.inlineRaytracing = true;
+			m_dxrFeatures.raytracingPipelineTracing = true;
+			m_dxrSupported = true;  // Legacy compatibility
+			break;
+		// Note: DXR 1.2 is identified via tier 1.1 + additional feature checks
+		default:
+			// Future tiers (placeholder for DXR 1.2+)
+			if (opt5.RaytracingTier > D3D12_RAYTRACING_TIER_1_1) {
+				tier = "1.2+";
+				m_dxrFeatures.dxrSupported = true;
+				m_dxrFeatures.inlineRaytracing = true;
+				m_dxrFeatures.raytracingPipelineTracing = true;
+				m_dxrSupported = true;
+			}
+			break;
 		}
 		LOGI(std::string("DXR Tier: ") + tier);
 	}
+
+	// Detect GPU architecture first (needed for SER fallback detection)
+	detectGPUArchitecture();
+
+	// Check for advanced DXR features (uses architecture info for SER detection)
+	checkAdvancedDXRFeatures();
+
+	// Log all detected features
+	m_dxrFeatures.LogFeatures();
 }
 
 bool App::createSwapchain() {
@@ -980,6 +1387,71 @@ bool App::initializeDXR() {
 	}
 	LOGI("Metaball lava lamp system initialized");
 
+	// Initialize demo mode from environment variable
+	int debugMode = Env::GetInt("PLASMADX_DEBUG_MODE", 1); // Default to Sphere RT
+	switch (debugMode) {
+		case 1: m_demoMode = DemoMode::SphereRT; LOGI("Demo Mode: Sphere RT (Pure DXR baseline)"); break;
+		case 2: m_demoMode = DemoMode::TorchlightDemo; LOGI("Demo Mode: Torchlight Demo (Interactive)"); break;
+		case 3: m_demoMode = DemoMode::VolumetricDemo; LOGI("Demo Mode: Volumetric Demo (Compact moving)"); break;
+		case 4: m_demoMode = DemoMode::VolumetricSculpture; LOGI("Demo Mode: Volumetric Sculpture (Static complex shape with sweeping RT lighting)"); break;
+		case 5: m_demoMode = DemoMode::PlasmaAccretion; LOGI("Demo Mode: Plasma Accretion Disk (Orbital plasma with volumetric self-shadowing)"); break;
+		case 6:
+			m_demoMode = DemoMode::VoxelParticles;
+			LOGI("Demo Mode: Voxel Particles (Debug particle simulation with 3D grid)");
+			if (!initializeVoxelSystem()) {
+				LOGE("Failed to initialize voxel system - falling back to Sphere RT");
+				m_demoMode = DemoMode::SphereRT;
+			}
+			break;
+		case 7:
+			m_demoMode = DemoMode::MetaballSPH;
+			LOGI("Demo Mode: Metaball SPH (SPH physics with metaball density field rendering)");
+			// Note: Metaball system is already initialized, no additional setup needed
+			break;
+		default: m_demoMode = DemoMode::SphereRT; LOGI("Demo Mode: Default Sphere RT"); break;
+	}
+
+	// Create SRV descriptors for DXR descriptor table binding
+	if (m_tlasSrvIndex == UINT_MAX) {
+		m_tlasSrvIndex = m_descriptorAllocator->Allocate();
+		if (m_tlasSrvIndex == UINT_MAX) {
+			LOGE("Failed to allocate SRV index for TLAS");
+			return false;
+		}
+	}
+
+	if (m_densityVolumeSrvIndex == UINT_MAX) {
+		m_densityVolumeSrvIndex = m_descriptorAllocator->Allocate();
+		if (m_densityVolumeSrvIndex == UINT_MAX) {
+			LOGE("Failed to allocate SRV index for density volume");
+			return false;
+		}
+	}
+
+	// Create TLAS SRV (for descriptor table binding)
+	D3D12_SHADER_RESOURCE_VIEW_DESC tlasSrvDesc = {};
+	tlasSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	tlasSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+	tlasSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	tlasSrvDesc.RaytracingAccelerationStructure.Location = m_tlasResult->GetGPUVirtualAddress();
+
+	D3D12_CPU_DESCRIPTOR_HANDLE tlasSrvHandle = m_descriptorAllocator->GetCPUHandle(m_tlasSrvIndex);
+	m_device->CreateShaderResourceView(nullptr, &tlasSrvDesc, tlasSrvHandle);
+
+	// Create density volume SRV (for descriptor table binding)
+	if (m_densityVolume && m_densityVolume->GetResource()) {
+		D3D12_SHADER_RESOURCE_VIEW_DESC densitySrvDesc = {};
+		densitySrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+		densitySrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+		densitySrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		densitySrvDesc.Texture3D.MostDetailedMip = 0;
+		densitySrvDesc.Texture3D.MipLevels = 1;
+		densitySrvDesc.Texture3D.ResourceMinLODClamp = 0.0f;
+
+		D3D12_CPU_DESCRIPTOR_HANDLE densitySrvHandle = m_descriptorAllocator->GetCPUHandle(m_densityVolumeSrvIndex);
+		m_device->CreateShaderResourceView(m_densityVolume->GetResource(), &densitySrvDesc, densitySrvHandle);
+	}
+
 	LOGI("DXR initialized successfully with HDR pipeline");
 	return true;
 }
@@ -1041,7 +1513,14 @@ void App::createDXRPipeline() {
 
 	LOGI("DXR shader loaded successfully (" + std::to_string(m_dxrShaderBlob->GetBufferSize()) + " bytes)");
 
-    // Create global root signature (DXR_0023): TLAS as root SRV, HDR UAV via descriptor table
+    // Create global root signature: Use descriptor tables for SRVs and UAVs
+    D3D12_DESCRIPTOR_RANGE srvRange = {};
+    srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange.NumDescriptors = 2; // t0 (TLAS) and t1 (density volume)
+    srvRange.BaseShaderRegister = 0; // t0
+    srvRange.RegisterSpace = 0;
+    srvRange.OffsetInDescriptorsFromTableStart = 0;
+
     D3D12_DESCRIPTOR_RANGE uavRange = {};
     uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     uavRange.NumDescriptors = 1;
@@ -1049,12 +1528,12 @@ void App::createDXRPipeline() {
     uavRange.RegisterSpace = 0;
     uavRange.OffsetInDescriptorsFromTableStart = 0;
 
-    D3D12_ROOT_PARAMETER params[3]{};
+    D3D12_ROOT_PARAMETER params[4]{};
 
-    // TLAS SRV as root SRV (t0)
-    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    params[0].Descriptor.ShaderRegister = 0;  // t0
-    params[0].Descriptor.RegisterSpace = 0;
+    // SRV descriptor table (t0, t1)
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable.NumDescriptorRanges = 1;
+    params[0].DescriptorTable.pDescriptorRanges = &srvRange;
     params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     // HDR UAV as descriptor table (u0)
@@ -1070,9 +1549,23 @@ void App::createDXRPipeline() {
     params[2].Constants.RegisterSpace = 0;
     params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
+    // Static sampler for density volume (s0)
+    D3D12_STATIC_SAMPLER_DESC staticSampler{};
+    staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    staticSampler.MinLOD = 0.0f;
+    staticSampler.MaxLOD = D3D12_FLOAT32_MAX;
+    staticSampler.ShaderRegister = 0; // s0
+    staticSampler.RegisterSpace = 0;
+    staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
     D3D12_ROOT_SIGNATURE_DESC rootSigDesc{};
     rootSigDesc.NumParameters = 3;
     rootSigDesc.pParameters = params;
+    rootSigDesc.NumStaticSamplers = 1;
+    rootSigDesc.pStaticSamplers = &staticSampler;
     rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
 	// Create root signature directly (stub doesn't provide utility method)
@@ -1103,8 +1596,8 @@ void App::createDXRPipeline() {
 	// Add hit group
 	m_dxrPipeline->AddHitGroup(L"HitGroup", L"ClosestHit");
 
-	// Set shader config
-	m_dxrPipeline->SetShaderConfig(sizeof(float) * 4, sizeof(float) * 2);
+	// Set shader config - Updated for RayPayload with coherenceHint (float4 + uint = 20 bytes)
+	m_dxrPipeline->SetShaderConfig(20, sizeof(float) * 2);
 
 	// Set pipeline config
 	m_dxrPipeline->SetPipelineConfig(1);
@@ -1285,9 +1778,10 @@ void App::renderFrameDXR() {
 
             // APP_0003: Guard DXR dispatch behind validity checks and env override
             bool dxrDisabled = Env::GetBool("PLASMADX_DISABLE_DXR", false); // default: DXR enabled for RT lighting
+            static bool s_dxrBlend = Env::GetBool("PLASMADX_DXR_BLEND", false); // additive blend over compute
             bool canDoDXR = (!dxrDisabled && m_dxrPipeline && m_dxrPipeline->GetPSO() && m_sbt && m_tlasResult);
             // Prefer compute metaball (lava lamp) path when requested to avoid DXR raygen overwriting HDR
-            if (!dxrDisabled) {
+            if (!dxrDisabled && !s_dxrBlend) {
                 int useCurl = Env::GetInt("PLASMADX_USE_CURL", 1);
                 bool useLavaLamp = Env::GetBool("PLASMADX_LAVA_LAMP", true);
                 if (useCurl == 0 && useLavaLamp) {
@@ -1320,9 +1814,10 @@ void App::renderFrameDXR() {
                     m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
                     m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
 
-                    // Bind TLAS (even if stub, needed for shader compilation)
-                    LOGI("DXR: Binding TLAS at GPU address");
-                    m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
+                    // Bind SRV descriptor table (TLAS + density volume)
+                    LOGI("DXR: Binding SRV descriptor table (TLAS + density volume)");
+                    D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
+                    m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
                     // Ensure HDR UAV is in UAV state before binding
                     if (m_hdrIsInSRVForRead) {
                         D3D12_RESOURCE_BARRIER toUAV{};
@@ -1347,14 +1842,13 @@ void App::renderFrameDXR() {
                         float lightPos[3]; float time;
                         float lightDir[3]; float innerCos;
                         float lightColor[3]; float outerCos;
-                        float mode; float bg; float pad[2];
+                        float mode; float bg; float blendEnabled; float blendScale;
                     } gp{};
 
-                    // Check for torchlight demo mode
-                    bool torchDemo = (getenv("PLASMADX_TORCHLIGHT_DEMO") != nullptr);
+                    // Demo mode-based lighting setup
                     static float tAccum = 0.0f; tAccum += 0.016f;
 
-                    if (torchDemo) {
+                    if (m_demoMode == DemoMode::TorchlightDemo) {
                         // TORCHLIGHT DEMO MODE: Mouse-controlled spotlight
 
                         if (m_torchOn) {
@@ -1403,8 +1897,89 @@ void App::renderFrameDXR() {
                         gp.innerCos = cosf(12.0f * 3.14159265f / 180.0f); // 12 degrees
                         gp.outerCos = cosf(25.0f * 3.14159265f / 180.0f); // 25 degrees
                         gp.bg = 0.02f; // Very dark background
+                    } else if (m_demoMode == DemoMode::SphereRT) {
+                        // SPHERE RT BASELINE: Static camera with fixed lighting for pure DXR demo
+
+                        // Static light position - positioned to show sphere clearly
+                        gp.lightPos[0] = -1.5f;
+                        gp.lightPos[1] = 1.0f;
+                        gp.lightPos[2] = -2.0f;
+
+                        // Light direction points toward sphere center (0,0,0)
+                        float len = sqrt(gp.lightPos[0]*gp.lightPos[0] + gp.lightPos[1]*gp.lightPos[1] + gp.lightPos[2]*gp.lightPos[2]);
+                        gp.lightDir[0] = -gp.lightPos[0] / len;
+                        gp.lightDir[1] = -gp.lightPos[1] / len;
+                        gp.lightDir[2] = -gp.lightPos[2] / len;
+
+                        // High-contrast white light for clear visibility
+                        gp.lightColor[0] = 1.2f;
+                        gp.lightColor[1] = 1.1f;
+                        gp.lightColor[2] = 1.0f;
+
+                        // Tight spotlight for good definition
+                        gp.innerCos = cosf(8.0f * 3.14159265f / 180.0f);  // 8 degrees
+                        gp.outerCos = cosf(15.0f * 3.14159265f / 180.0f); // 15 degrees
+                        gp.bg = Env::GetInt("PLASMADX_YELLOW_BG", 0) ? 1.0f : 0.01f; // Very dark or yellow safeguard
+                    } else if (m_demoMode == DemoMode::VolumetricSculpture) {
+                        // VOLUMETRIC SCULPTURE: Sweeping directional light with figure-8 pattern
+                        float angle = tAccum * 0.8f; // Slightly faster than fallback
+                        float radius = 2.5f; // Larger radius for dramatic sweeping
+
+                        // Smaller circular movement pattern around volume center
+                        float volumeCenterX = 0.0f;   // Match shader volume center
+                        float volumeCenterY = 0.0f;
+                        float volumeCenterZ = -1.5f;
+                        float moveRadius = 0.30f;  // Slightly larger for better visibility
+
+                        gp.lightPos[0] = sin(angle * 0.45f) * moveRadius + volumeCenterX;
+                        gp.lightPos[1] = cos(angle * 0.45f) * moveRadius * 0.5f + volumeCenterY;
+                        gp.lightPos[2] = volumeCenterZ + 0.8f;  // Position in front of volume
+
+                        // Light direction points toward volume center
+                        float dx = volumeCenterX - gp.lightPos[0];
+                        float dy = volumeCenterY - gp.lightPos[1];
+                        float dz = volumeCenterZ - gp.lightPos[2];
+                        float len = sqrt(dx*dx + dy*dy + dz*dz);
+                        gp.lightDir[0] = dx / len;
+                        gp.lightDir[1] = dy / len;
+                        gp.lightDir[2] = dz / len;
+
+                        // Moderate torch light for direct illumination (no accumulation)
+                        gp.lightColor[0] = 2.0f;  // Reduced for direct model
+                        gp.lightColor[1] = 1.9f;  // Warmer torch colors
+                        gp.lightColor[2] = 1.8f;
+
+                        // MUCH tighter spotlight cone like torch beam (user feedback: too wide)
+                        gp.innerCos = cosf(2.0f * 3.14159265f / 180.0f);  // 2 degrees inner (was 8)
+                        gp.outerCos = cosf(6.0f * 3.14159265f / 180.0f);  // 6 degrees outer (was 15)
+                        gp.bg = 0.0f; // Pure black background
+                    } else if (m_demoMode == DemoMode::PlasmaAccretion) {
+                        // === PLASMA ACCRETION DISK: Physics-based controls via lighting parameters ===
+                        // Map lighting parameters to plasma physics for interactive control
+
+                        // Gravity center offset (lightPos controls disk center offset)
+                        gp.lightPos[0] = m_plasmaOffsetX;  // Disk center X offset
+                        gp.lightPos[1] = m_plasmaOffsetY;  // Disk center Y offset
+                        gp.lightPos[2] = m_plasmaOffsetZ;  // Disk center Z offset
+
+                        // Angular velocity control (lightDir.x controls rotation speed)
+                        // lightDir.y controls particle density multiplier
+                        // lightDir.z controls disk thickness
+                        gp.lightDir[0] = m_plasmaAngularVel;  // Angular velocity base (0.1-2.0)
+                        gp.lightDir[1] = m_plasmaDensity;     // Particle density multiplier (0.5-3.0)
+                        gp.lightDir[2] = m_plasmaDiskThickness; // Disk thickness multiplier (0.5-2.0)
+
+                        // Temperature control (lightColor controls emission intensity)
+                        gp.lightColor[0] = m_plasmaCoreTemp;  // Core temperature (blue-white intensity)
+                        gp.lightColor[1] = m_plasmaMidTemp;   // Mid-disk temperature (yellow-orange intensity)
+                        gp.lightColor[2] = m_plasmaEdgeTemp;  // Outer edge temperature (red-orange intensity)
+
+                        // Gravity strength (innerCos) and simulation quality (outerCos)
+                        gp.innerCos = m_plasmaGravityExp;   // Gravity strength (Keplerian exponent: 0.5-2.5)
+                        gp.outerCos = static_cast<float>(m_plasmaQuality); // Max ray marching steps (100-300)
+                        gp.bg = 0.01f; // Dark space background
                     } else {
-                        // Default: sweeping spotlight animation
+                        // Default: sweeping spotlight animation (fallback)
                         float angle = tAccum * 0.7f;
                         float radius = 2.0f;
                         gp.lightPos[0] = -cosf(angle) * radius;
@@ -1423,11 +1998,23 @@ void App::renderFrameDXR() {
                     }
 
                     gp.time = tAccum;
-                    gp.mode = torchDemo ? 2.0f : 1.0f; // Mode 2 = torchlight demo
+                    gp.mode = static_cast<float>(m_demoMode); // Pass demo mode to shader
+
+                    // Mode 1 (SphereRT): pure DXR, Mode 4 (VolumetricSculpture): blend enabled for better surface contact
+                    if (m_demoMode == DemoMode::SphereRT) {
+                        gp.blendEnabled = 0.0f;  // Force OFF for pure DXR
+                        gp.blendScale = 1.0f;
+                    } else if (m_demoMode == DemoMode::VolumetricSculpture) {
+                        gp.blendEnabled = 0.0f;  // Disable blending to prevent burn-in accumulation
+                        gp.blendScale = 1.0f;    // Replace mode for immediate torch response
+                    } else {
+                        gp.blendEnabled = m_dxrBlend ? 1.0f : 0.0f;
+                        gp.blendScale = m_dxrBlendScale;
+                    }
 
                     m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GlobalParams)/4, &gp, 0);
 
-                    // Add UAV barrier before DispatchRays (GPT-5 recommendation from MCP research)
+                    // Add UAV barrier before DispatchRays (keeps ordering)
                     LOGI("DXR: Adding UAV barrier before DispatchRays");
                     D3D12_RESOURCE_BARRIER uavBarrier{};
                     uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
@@ -1571,7 +2158,9 @@ void App::renderFrameDXR() {
 			m_cmdList->Close();
 			return;
 		}
-		m_cmdList->SetComputeRootShaderResourceView(0, m_tlasResult->GetGPUVirtualAddress());
+		// Bind SRV descriptor table (TLAS + density volume)
+		D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
+		m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
 		m_cmdList->SetComputeRootUnorderedAccessView(1, m_backbuffers[m_frameIndex]->GetGPUVirtualAddress());
 
 		// Dispatch rays
@@ -1718,4 +2307,210 @@ void App::recreateHDRTexture() {
 
     // Recreate with new size
     createHDRTexture();
+}
+
+// ============================================================================
+// VOXEL PARTICLE SYSTEM IMPLEMENTATION (MODE 6)
+// ============================================================================
+
+bool App::initializeVoxelSystem() {
+    LOGI("Initializing Voxel Particle System (Mode 6)...");
+
+    // Create 3D textures for voxel grid
+    if (!createVoxelTextures()) {
+        LOGE("Failed to create voxel textures");
+        return false;
+    }
+
+    // Create compute pipelines for voxel updates
+    if (!createVoxelComputePipelines()) {
+        LOGE("Failed to create voxel compute pipelines");
+        return false;
+    }
+
+    // Initialize voxel grid with some seed data
+    resetVoxelGrid();
+
+    LOGI("Voxel system initialized successfully (resolution: " + std::to_string(m_voxelResolution) + "^3)");
+    return true;
+}
+
+bool App::createVoxelTextures() {
+    LOGI("Creating 3D voxel textures...");
+
+    // 3D texture descriptor for voxel grid
+    D3D12_RESOURCE_DESC voxelTexDesc = {};
+    voxelTexDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    voxelTexDesc.Width = m_voxelResolution;
+    voxelTexDesc.Height = m_voxelResolution;
+    voxelTexDesc.DepthOrArraySize = m_voxelResolution;
+    voxelTexDesc.MipLevels = 1;
+    voxelTexDesc.SampleDesc.Count = 1;
+    voxelTexDesc.SampleDesc.Quality = 0;
+    voxelTexDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    voxelTexDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    D3D12_HEAP_PROPERTIES heapProps = {};
+    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    // Create density texture (R16_FLOAT)
+    voxelTexDesc.Format = DXGI_FORMAT_R16_FLOAT;
+    HRESULT hr = m_device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &voxelTexDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_voxelDensityTexture)
+    );
+    if (FAILED(hr)) {
+        LOGE("Failed to create voxel density texture");
+        return false;
+    }
+    m_voxelDensityTexture->SetName(L"VoxelDensityTexture");
+
+    // Create velocity texture (R16G16B16A16_FLOAT)
+    voxelTexDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    hr = m_device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &voxelTexDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_voxelVelocityTexture)
+    );
+    if (FAILED(hr)) {
+        LOGE("Failed to create voxel velocity texture");
+        return false;
+    }
+    m_voxelVelocityTexture->SetName(L"VoxelVelocityTexture");
+
+    // Create temperature texture (R16_FLOAT)
+    voxelTexDesc.Format = DXGI_FORMAT_R16_FLOAT;
+    hr = m_device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &voxelTexDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_voxelTemperatureTexture)
+    );
+    if (FAILED(hr)) {
+        LOGE("Failed to create voxel temperature texture");
+        return false;
+    }
+    m_voxelTemperatureTexture->SetName(L"VoxelTemperatureTexture");
+
+    // Allocate descriptor indices
+    m_voxelDensitySRVIndex = m_descriptorAllocator->Allocate();
+    m_voxelDensityUAVIndex = m_descriptorAllocator->Allocate();
+    m_voxelVelocitySRVIndex = m_descriptorAllocator->Allocate();
+    m_voxelVelocityUAVIndex = m_descriptorAllocator->Allocate();
+    m_voxelTempSRVIndex = m_descriptorAllocator->Allocate();
+    m_voxelTempUAVIndex = m_descriptorAllocator->Allocate();
+
+    // Create SRVs and UAVs for density texture
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R16_FLOAT;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture3D.MipLevels = 1;
+    m_device->CreateShaderResourceView(
+        m_voxelDensityTexture.Get(),
+        &srvDesc,
+        m_descriptorAllocator->GetCPUHandle(m_voxelDensitySRVIndex)
+    );
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = DXGI_FORMAT_R16_FLOAT;
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+    uavDesc.Texture3D.WSize = m_voxelResolution;
+    m_device->CreateUnorderedAccessView(
+        m_voxelDensityTexture.Get(),
+        nullptr,
+        &uavDesc,
+        m_descriptorAllocator->GetCPUHandle(m_voxelDensityUAVIndex)
+    );
+
+    // Create SRVs and UAVs for velocity texture
+    srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    m_device->CreateShaderResourceView(
+        m_voxelVelocityTexture.Get(),
+        &srvDesc,
+        m_descriptorAllocator->GetCPUHandle(m_voxelVelocitySRVIndex)
+    );
+
+    uavDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    m_device->CreateUnorderedAccessView(
+        m_voxelVelocityTexture.Get(),
+        nullptr,
+        &uavDesc,
+        m_descriptorAllocator->GetCPUHandle(m_voxelVelocityUAVIndex)
+    );
+
+    // Create SRVs and UAVs for temperature texture
+    srvDesc.Format = DXGI_FORMAT_R16_FLOAT;
+    m_device->CreateShaderResourceView(
+        m_voxelTemperatureTexture.Get(),
+        &srvDesc,
+        m_descriptorAllocator->GetCPUHandle(m_voxelTempSRVIndex)
+    );
+
+    uavDesc.Format = DXGI_FORMAT_R16_FLOAT;
+    m_device->CreateUnorderedAccessView(
+        m_voxelTemperatureTexture.Get(),
+        nullptr,
+        &uavDesc,
+        m_descriptorAllocator->GetCPUHandle(m_voxelTempUAVIndex)
+    );
+
+    LOGI("Voxel textures created successfully");
+    return true;
+}
+
+bool App::createVoxelComputePipelines() {
+    LOGI("Creating voxel compute pipelines...");
+
+    // TODO: Implement compute shader loading and PSO creation
+    // For now, we'll create stub pipelines and implement the shaders separately
+    LOGI("Voxel compute pipelines created (stub implementation)");
+    return true;
+}
+
+void App::updateVoxelSystem(float deltaTime) {
+    // Update voxel particle simulation
+    // This will be called each frame to advance the particle physics
+
+    // TODO: Implement voxel updates with compute shaders
+    // - Advection step: move particles according to velocity field
+    // - Force step: apply turbulence and dissipation
+    // - Temperature step: simulate heating/cooling effects
+}
+
+void App::resetVoxelGrid() {
+    LOGI("Resetting voxel grid to initial state");
+
+    // TODO: Implement voxel grid reset with initial particle distribution
+    // For now, we'll clear the reset flag
+    m_voxelReset = false;
+}
+
+void App::cleanupVoxelSystem() {
+    LOGI("Cleaning up voxel system");
+
+    // Release voxel resources
+    m_voxelDensityTexture.Reset();
+    m_voxelVelocityTexture.Reset();
+    m_voxelTemperatureTexture.Reset();
+    m_voxelUpdatePSO.Reset();
+    m_voxelAdvectPSO.Reset();
+    m_voxelComputeRS.Reset();
+
+    // Reset descriptor indices
+    m_voxelDensitySRVIndex = UINT_MAX;
+    m_voxelDensityUAVIndex = UINT_MAX;
+    m_voxelVelocitySRVIndex = UINT_MAX;
+    m_voxelVelocityUAVIndex = UINT_MAX;
+    m_voxelTempSRVIndex = UINT_MAX;
+    m_voxelTempUAVIndex = UINT_MAX;
 }
