@@ -13,6 +13,14 @@
     {
       "name": "Run Debug (DXR on)",
       "command": "bash -lc 'echo PlasmaDX run skipped on Linux agent'"
+    },
+    {
+      "name": "Summarize newest logs (N=4)",
+      "command": "bash -lc 'PLASMADX_SUMMARY_N=4 python3 tools/log_summarizer.py || python tools/log_summarizer.py'"
+    },
+    {
+      "name": "Summarize newest logs (N=10)",
+      "command": "bash -lc 'PLASMADX_SUMMARY_N=10 python3 tools/log_summarizer.py || python tools/log_summarizer.py'"
     }
   ]
 }

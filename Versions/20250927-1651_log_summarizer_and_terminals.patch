@@ -1,0 +1,20 @@
+diff --git a/.cursor/environment.json b/.cursor/environment.json
+index e14b9b2..652cbb1 100644
+--- a/.cursor/environment.json
++++ b/.cursor/environment.json
+@@ -13,6 +13,14 @@
+     {
+       "name": "Run Debug (DXR on)",
+       "command": "bash -lc 'echo PlasmaDX run skipped on Linux agent'"
++    },
++    {
++      "name": "Summarize newest logs (N=4)",
++      "command": "bash -lc 'PLASMADX_SUMMARY_N=4 python3 tools/log_summarizer.py || python tools/log_summarizer.py'"
++    },
++    {
++      "name": "Summarize newest logs (N=10)",
++      "command": "bash -lc 'PLASMADX_SUMMARY_N=10 python3 tools/log_summarizer.py || python tools/log_summarizer.py'"
+     }
+   ]
+ }
+\ No newline at end of file
