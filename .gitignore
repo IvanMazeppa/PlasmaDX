@@ -32,3 +32,7 @@ bin/
 .vscode/
 PlasmaDX.log
 microsoft.direct3d.d3d12.1.717.1-preview.nupkg
+backup/**
+backup_broken_version/**
+Versions/*.bundle
+Versions/*.tgz
