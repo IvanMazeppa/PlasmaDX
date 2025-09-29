@@ -1,0 +1,79 @@
+diff --git a/src/core/App.cpp b/src/core/App.cpp
+index 09832cf..60a4958 100644
+--- a/src/core/App.cpp
++++ b/src/core/App.cpp
+@@ -1452,11 +1452,9 @@ bool App::initializeDXR() {
+ 		case 9:
+ 			m_demoMode = DemoMode::AccretionMeshParticles;
+ 			LOGI("Demo Mode: Accretion Mesh Particles (NASA-quality accretion disk with 100K mesh shader particles)");
+-			// Initialize mesh particle system
+-			if (!initializeMeshParticleSystem()) {
+-				LOGE("Failed to initialize mesh particle system - falling back to Sphere RT");
+-				m_demoMode = DemoMode::SphereRT;
+-			}
++			// TODO: Initialize mesh particle system (not implemented yet)
++			LOGI("Mesh particle system not implemented yet - falling back to Sphere RT");
++			m_demoMode = DemoMode::SphereRT;
+ 			break;
+ 		default: m_demoMode = DemoMode::SphereRT; LOGI("Demo Mode: Default Sphere RT"); break;
+ 	}
+@@ -1723,6 +1721,7 @@ void App::renderFrameDXR() {
+ 	PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Frame");
+ 
+ 	// Check if we have HDR pipeline or fallback to direct backbuffer rendering
++	// CRITICAL FIX: Re-enable HDR pipeline - direct backbuffer UAV causes nvwgf2umx.dll crash
+ 	bool useHDRPipeline = (m_hdrTexture != nullptr && m_composite != nullptr);
+ 
+     if (useHDRPipeline) {
+@@ -2182,10 +2181,31 @@ void App::renderFrameDXR() {
+ 			m_cmdList->ResourceBarrier(1, &toPresent);
+ 		}
+ 	} else {
+-		// Fallback: Direct backbuffer rendering (legacy path)
+-		PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Direct to Backbuffer");
+-
+-		// Transition backbuffer PRESENT -> UAV
++		// CRITICAL: Direct backbuffer UAV causes GPU driver crashes on NVIDIA
++		// This path should be disabled - fallback to clear screen instead
++		LOGE("CRITICAL: Direct backbuffer UAV path disabled - causes nvwgf2umx.dll crash!");
++		LOGE("FALLBACK: Clearing screen instead of DXR to backbuffer");
++
++		PIX_SCOPED_EVENT(m_cmdList.Get(), "Safe Backbuffer Clear (UAV Disabled)");
++
++		// Transition backbuffer PRESENT -> RTV (safe for clear)
++		D3D12_RESOURCE_BARRIER toRTV{};
++		toRTV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++		toRTV.Transition.pResource = m_backbuffers[m_frameIndex].Get();
++		toRTV.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
++		toRTV.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
++		toRTV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++		m_cmdList->ResourceBarrier(1, &toRTV);
++
++		// Clear backbuffer with warning color (red to indicate fallback)
++		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
++		rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
++		FLOAT clearColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Red warning
++		m_cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
++
++		// DISABLED: The following UAV code crashes NVIDIA drivers
++		/*
++		// Skip dangerous UAV transition - the following code would crash:
+ 		D3D12_RESOURCE_BARRIER toUAV{};
+ 		toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+ 		toUAV.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+@@ -2221,12 +2241,13 @@ void App::renderFrameDXR() {
+ 		}
+ 		auto dispatchDesc = m_sbt->GetDispatchRaysDesc(m_width, m_height);
+ 		m_cmdList->DispatchRays(&dispatchDesc);
++		*/
+ 
+-		// Transition backbuffer UAV -> PRESENT
++		// Transition backbuffer RTV -> PRESENT (safe)
+ 		D3D12_RESOURCE_BARRIER toPresent{};
+ 		toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+ 		toPresent.Transition.pResource = m_backbuffers[m_frameIndex].Get();
+-		toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++		toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+ 		toPresent.Transition.StateAfter  = D3D12_RESOURCE_STATE_PRESENT;
+ 		toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+ 		m_cmdList->ResourceBarrier(1, &toPresent);

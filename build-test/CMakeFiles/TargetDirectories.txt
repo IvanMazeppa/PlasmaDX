@@ -1,0 +1,4 @@
+/mnt/d/users/dilli/androidstudioprojects/plasmadx/build-test/CMakeFiles/PlasmaDX.dir
+/mnt/d/users/dilli/androidstudioprojects/plasmadx/build-test/CMakeFiles/compile_shaders.dir
+/mnt/d/users/dilli/androidstudioprojects/plasmadx/build-test/CMakeFiles/edit_cache.dir
+/mnt/d/users/dilli/androidstudioprojects/plasmadx/build-test/CMakeFiles/rebuild_cache.dir

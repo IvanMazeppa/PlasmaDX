@@ -6,5 +6,10 @@
         {
             "path": "."
         }
-    ]
+    ],
+    "extensions": {
+        "recommendations": [
+            "anthropic.claude-code"
+        ]
+    }
 }

@@ -179,7 +179,6 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_hdrTexture;
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
-	UINT m_hdrRtvIndex = UINT_MAX;  // RTV for mesh shader rendering
 
 	// DXR SRV descriptors for descriptor table binding
 	UINT m_tlasSrvIndex = UINT_MAX;     // TLAS SRV for descriptor table (t0)
@@ -214,7 +213,7 @@ private:
         VoxelParticles = 6,      // Voxel-based particle simulation (debug/development)
         MetaballSPH = 7,         // SPH metaball physics with density field rendering
         DXR12Test = 8,          // DXR 1.2 feature testing (SER, OMM, clean pipeline validation)
-        AccretionMeshParticles = 9 // NASA-quality accretion disk with mesh shader rendering (100K particles)
+        AccretionMeshParticles = 9  // NASA-quality accretion disk with 100K mesh shader particles
     };
     DemoMode m_demoMode = DemoMode::SphereRT;
 
@@ -253,8 +252,8 @@ private:
 	// Metaballs (lava lamp)
 	std::unique_ptr<MetaballSystem> m_metaballSystem;
 
-	// Mesh particle system for accretion disk (Mode 9)
-	std::unique_ptr<ParticleSystem> m_particleSystem;
+	// Mesh shader particle system (Mode 9)
+	std::unique_ptr<ParticleSystem> m_meshParticleSystem;
 
 	// Voxel particle system (Mode 6)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelDensityTexture;     // 3D texture for particle density

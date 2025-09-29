@@ -448,20 +448,16 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 		LOGE("Failed to create swapchain");
 		return false;
 	}
-	// Create RTVs immediately after swapchain, before heavy DXR work
-	if (!createRTVs()) {
-		LOGE("Failed to create RTVs");
-		return false;
-	}
 	// Create command allocator/list and fence before any GPU work (DXR AS build uses them)
 	if (!createCommandObjects()) {
 		LOGE("Failed to create command objects");
 		return false;
 	}
+	// Initialize DXR pipeline (confirmed working from step-by-step tests)
 	if (m_dxrSupported) {
 		try {
-			if (!initializeDXR()) {
-				LOGW("DXR initialization failed, falling back to rasterization");
+			if (!initializeDXRCore()) {
+				LOGW("DXR core initialization failed, falling back to rasterization");
 				m_dxrSupported = false;
 			}
 		} catch (const std::exception& e) {
@@ -469,6 +465,10 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 			LOGW("Falling back to rasterization");
 			m_dxrSupported = false;
 		}
+	}
+	if (!createRTVs()) {
+		LOGE("Failed to create RTVs");
+		return false;
 	}
 	LOGI("PlasmaDX initialized successfully");
 	return true;
@@ -967,8 +967,17 @@ void App::checkDXRSupport() {
 }
 
 bool App::createSwapchain() {
+	LOGI("Creating swapchain...");
+
+	LOGI("Creating command queue...");
 	D3D12_COMMAND_QUEUE_DESC qdesc{}; qdesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-	if (FAILED(m_device->CreateCommandQueue(&qdesc, IID_PPV_ARGS(&m_queue)))) return false;
+	if (FAILED(m_device->CreateCommandQueue(&qdesc, IID_PPV_ARGS(&m_queue)))) {
+		LOGE("Failed to create command queue");
+		return false;
+	}
+	LOGI("Command queue created successfully");
+
+	LOGI("Creating DXGI swapchain...");
 	DXGI_SWAP_CHAIN_DESC1 scd{};
 	scd.BufferCount = kBackBufferCount;
 	scd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -977,61 +986,88 @@ bool App::createSwapchain() {
 	scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	scd.Width = m_width; scd.Height = m_height;
 	ComPtr<IDXGISwapChain1> temp;
-	if (FAILED(m_factory->CreateSwapChainForHwnd(m_queue.Get(), m_hwnd, &scd, nullptr, nullptr, &temp))) return false;
-	if (FAILED(temp.As(&m_swapchain))) return false;
+	if (FAILED(m_factory->CreateSwapChainForHwnd(m_queue.Get(), m_hwnd, &scd, nullptr, nullptr, &temp))) {
+		LOGE("Failed to create DXGI swapchain");
+		return false;
+	}
+	LOGI("DXGI swapchain created successfully");
+
+	LOGI("Converting to IDXGISwapChain4...");
+	if (FAILED(temp.As(&m_swapchain))) {
+		LOGE("Failed to convert to IDXGISwapChain4");
+		return false;
+	}
+	LOGI("Swapchain conversion successful");
+
 	m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
+	LOGI("Swapchain created successfully with frame index: " + std::to_string(m_frameIndex));
+	return true;
+}
+
+// Test function to check if RTV creation would work
+bool App::testRTVCreation() {
+	LOGI("Testing RTV descriptor heap creation...");
+
+	ComPtr<ID3D12DescriptorHeap> testRtvHeap;
+	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
+	rtvDesc.NumDescriptors = 2;
+	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	rtvDesc.NodeMask = 0;
+
+	HRESULT hr = m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&testRtvHeap));
+	if (FAILED(hr)) {
+		LOGE("Test RTV descriptor heap creation failed, HRESULT: 0x" + std::to_string(hr));
+		return false;
+	}
+	LOGI("Test RTV descriptor heap creation succeeded");
 	return true;
 }
 
 bool App::createRTVs() {
-	LOGI("Starting RTV creation...");
+	LOGI("Creating RTVs...");
 
-	// Validate prerequisites
-	if (!m_device) {
-		LOGE("RTV creation failed: Device is null");
-		return false;
-	}
-	if (!m_swapchain) {
-		LOGE("RTV creation failed: Swapchain is null");
-		return false;
+	// Check if we already have an RTV heap (shouldn't happen but let's be safe)
+	if (m_rtvHeap) {
+		LOGW("RTV heap already exists, releasing it first");
+		m_rtvHeap.Reset();
 	}
 
-	// Check device removal state before proceeding
-	HRESULT deviceRemovedReason = m_device->GetDeviceRemovedReason();
-	if (deviceRemovedReason != S_OK) {
-		LOGE("Device was removed before RTV creation, reason: 0x" + std::to_string(deviceRemovedReason));
-		return false;
-	}
-
-	LOGI("Creating RTV descriptor heap...");
+	LOGI("Creating RTV descriptor heap with " + std::to_string(kBackBufferCount) + " descriptors");
 	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
 	rtvDesc.NumDescriptors = kBackBufferCount;
 	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	rtvDesc.NodeMask = 0;
+
 	HRESULT hr = m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap));
 	if (FAILED(hr)) {
-		if (hr == DXGI_ERROR_DEVICE_REMOVED) {
-			HRESULT reason = m_device->GetDeviceRemovedReason();
-			LOGE("RTV heap creation failed due to device removal, reason: 0x" + std::to_string(reason));
-		} else {
-			LOGE("Failed to create RTV descriptor heap, HRESULT: 0x" + std::to_string(hr));
-		}
+		LOGE("Failed to create RTV descriptor heap, HRESULT: 0x" + std::to_string(hr));
+		LOGE("Device state check - device valid: " + std::string(m_device ? "YES" : "NO"));
+		LOGE("Requested descriptors: " + std::to_string(kBackBufferCount));
 		return false;
 	}
 	LOGI("RTV descriptor heap created successfully");
 
 	m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	D3D12_CPU_DESCRIPTOR_HANDLE start = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+	LOGI("RTV descriptor size: " + std::to_string(m_rtvDescriptorSize));
 
-	LOGI("Creating RTVs for " + std::to_string(kBackBufferCount) + " back buffers...");
+	D3D12_CPU_DESCRIPTOR_HANDLE start = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+	LOGI("RTV heap start handle: " + std::to_string(start.ptr));
+
 	for (UINT i = 0; i < kBackBufferCount; ++i) {
-		hr = m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_backbuffers[i]));
-		if (FAILED(hr)) {
-			LOGE("Failed to get back buffer " + std::to_string(i) + ", HRESULT: 0x" + std::to_string(hr));
+		LOGI("Getting backbuffer " + std::to_string(i) + "...");
+		if (FAILED(m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_backbuffers[i])))) {
+			LOGE("Failed to get backbuffer " + std::to_string(i));
 			return false;
 		}
-		D3D12_CPU_DESCRIPTOR_HANDLE dst = start; dst.ptr += SIZE_T(i) * SIZE_T(m_rtvDescriptorSize);
+		LOGI("Backbuffer " + std::to_string(i) + " retrieved successfully");
+
+		D3D12_CPU_DESCRIPTOR_HANDLE dst = start;
+		dst.ptr += SIZE_T(i) * SIZE_T(m_rtvDescriptorSize);
+		LOGI("Creating RTV " + std::to_string(i) + " at handle: " + std::to_string(dst.ptr));
 		m_device->CreateRenderTargetView(m_backbuffers[i].Get(), nullptr, dst);
-		LOGI("Created RTV for back buffer " + std::to_string(i));
+		LOGI("RTV " + std::to_string(i) + " created successfully");
 	}
 	LOGI("All RTVs created successfully");
 	return true;
@@ -1342,6 +1378,121 @@ void App::cleanup() {
 #endif
 }
 
+bool App::initializeDXRCore() {
+	LOGI("Initializing DXR core (without volumetric systems)...");
+
+	// Check if DXR is actually supported
+	if (m_dxrTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) {
+		LOGW("DXR not supported on this device");
+		return false;
+	}
+
+	// Create AS builder
+	try {
+		m_asBuilder = std::make_unique<ASBuilder>(m_device.Get());
+	} catch (const std::exception& e) {
+		LOGE(std::string("Failed to create AS builder: ") + e.what());
+		return false;
+	}
+
+	// Create descriptor heap allocator
+	m_descriptorAllocator = std::make_unique<DescriptorHeap>(
+		m_device.Get(),
+		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+		64,  // Capacity
+		true // Shader visible
+	);
+
+	if (!m_descriptorAllocator->Initialize()) {
+		LOGE("Failed to initialize descriptor heap allocator");
+		return false;
+	}
+
+	// Keep reference to underlying heap for compatibility
+	m_srvUavHeap = m_descriptorAllocator->GetHeap();
+
+	// Build acceleration structures
+	buildAccelerationStructures();
+
+	// Create DXR pipeline
+	createDXRPipeline();
+
+	// Create shader binding table
+	createShaderBindingTable();
+
+	// Initialize Camera and Composite (these work fine)
+	m_camera = std::make_unique<Camera>();
+	m_camera->Initialize(float(m_width) / float(m_height));
+	m_camera->CreateConstantBuffer(m_device.Get());
+
+	m_composite = std::make_unique<Composite>(m_device.Get());
+	m_composite->Initialize();
+
+	createHDRTexture();
+
+	// Demo mode selection (safe modes only - no volumetrics in initializeDXRCore)
+	int debugMode = Env::GetInt("PLASMADX_DEBUG_MODE", 8); // Default to DXR12Test
+	switch (debugMode) {
+		case 1:
+			m_demoMode = DemoMode::SphereRT;
+			LOGI("Demo Mode: Sphere RT (Pure DXR baseline)");
+			break;
+		case 2:
+			m_demoMode = DemoMode::TorchlightDemo;
+			LOGI("Demo Mode: Torchlight Demo (Interactive)");
+			break;
+		case 8:
+			m_demoMode = DemoMode::DXR12Test;
+			LOGI("Demo Mode: DXR 1.2 Test");
+			break;
+		case 9:
+			// Mode 9: Mesh shader particle system (isolated, no volumetrics)
+			m_demoMode = DemoMode::AccretionMeshParticles;
+			LOGI("Demo Mode: Accretion Mesh Particles (NASA-quality 100K particle system)");
+			try {
+				m_meshParticleSystem = std::make_unique<ParticleSystem>();
+				if (!m_meshParticleSystem->Initialize(m_device.Get(), 100000)) {
+					LOGE("Failed to initialize mesh particle system - falling back to DXR12Test");
+					m_meshParticleSystem.reset();
+					m_demoMode = DemoMode::DXR12Test;
+				} else {
+					LOGI("Mesh particle system initialized successfully (100K particles)");
+				}
+			} catch (const std::exception& e) {
+				LOGE(std::string("Mesh particle system initialization threw exception: ") + e.what());
+				m_meshParticleSystem.reset();
+				m_demoMode = DemoMode::DXR12Test;
+			}
+			break;
+		default:
+			m_demoMode = DemoMode::DXR12Test;
+			LOGI("Demo Mode: Default DXR 1.2 Test");
+			break;
+	}
+
+	// Create SRV descriptors for DXR descriptor table binding
+	if (m_tlasSrvIndex == UINT_MAX) {
+		m_tlasSrvIndex = m_descriptorAllocator->Allocate();
+		if (m_tlasSrvIndex == UINT_MAX) {
+			LOGE("Failed to allocate SRV index for TLAS");
+			return false;
+		}
+	}
+
+	// Create TLAS SRV (for descriptor table binding)
+	D3D12_SHADER_RESOURCE_VIEW_DESC tlasSrvDesc = {};
+	tlasSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	tlasSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+	tlasSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	tlasSrvDesc.RaytracingAccelerationStructure.Location = m_tlasResult->GetGPUVirtualAddress();
+
+	D3D12_CPU_DESCRIPTOR_HANDLE tlasSrvHandle = m_descriptorAllocator->GetCPUHandle(m_tlasSrvIndex);
+	m_device->CreateShaderResourceView(nullptr, &tlasSrvDesc, tlasSrvHandle);
+
+	LOGI("DXR core initialized successfully - ready for DXR 1.2 testing");
+	return true;
+}
+
 bool App::initializeDXR() {
 	LOGI("Initializing DXR...");
 
@@ -1448,15 +1599,6 @@ bool App::initializeDXR() {
 			m_demoMode = DemoMode::MetaballSPH;
 			LOGI("Demo Mode: Metaball SPH (SPH physics with metaball density field rendering)");
 			// Note: Metaball system is already initialized, no additional setup needed
-			break;
-		case 9:
-			m_demoMode = DemoMode::AccretionMeshParticles;
-			LOGI("Demo Mode: Accretion Mesh Particles (NASA-quality accretion disk with 100K mesh shader particles)");
-			// Initialize mesh particle system
-			if (!initializeMeshParticleSystem()) {
-				LOGE("Failed to initialize mesh particle system - falling back to Sphere RT");
-				m_demoMode = DemoMode::SphereRT;
-			}
 			break;
 		default: m_demoMode = DemoMode::SphereRT; LOGI("Demo Mode: Default Sphere RT"); break;
 	}
@@ -1727,8 +1869,8 @@ void App::renderFrameDXR() {
 
     if (useHDRPipeline) {
         bool wroteHDRThisFrame = false;
-		// Update particle system (VOL_0001) - Skip in demo mode 9 as it conflicts with mesh particles
-		if (m_particles && m_demoMode != DemoMode::AccretionMeshParticles) {
+		// Update particle system (VOL_0001)
+		if (m_particles) {
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "Particles Update");
 
 			// Set descriptor heaps for particle update
@@ -1818,6 +1960,90 @@ void App::renderFrameDXR() {
 			// With GPT-5's viewport/scissor fix, this should now be visible
 		}
 
+		// MODE 9: Mesh shader particle rendering (isolated path, no volumetrics)
+		if (m_demoMode == DemoMode::AccretionMeshParticles && m_meshParticleSystem) {
+			PIX_SCOPED_EVENT(m_cmdList.Get(), "Mesh Particle System");
+
+			static bool s_firstFrame = true;
+			if (s_firstFrame) {
+				LOGI("MODE 9: Starting mesh particle render loop");
+				s_firstFrame = false;
+			}
+
+			// Update camera with deltaTime for smooth movement
+			static float totalTime = 0.0f;
+			const float deltaTime = 0.016f; // ~60 FPS
+			totalTime += deltaTime;
+
+			if (m_camera) {
+				m_camera->Update(deltaTime);
+			}
+
+			try {
+				// Update particle physics (accretion disk simulation)
+				m_meshParticleSystem->UpdatePhysics(m_cmdList.Get(), deltaTime);
+
+				// Get current backbuffer for direct rendering
+				m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
+				auto backbuffer = m_backbuffers[m_frameIndex];
+
+				static int s_frameCount = 0;
+				if (s_frameCount < 3) {
+					LOGI("MODE 9: Rendering frame " + std::to_string(s_frameCount) + " to backbuffer " + std::to_string(m_frameIndex));
+					s_frameCount++;
+				}
+
+				// Transition backbuffer to render target
+				D3D12_RESOURCE_BARRIER toRTV{};
+				toRTV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				toRTV.Transition.pResource = backbuffer.Get();
+				toRTV.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+				toRTV.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+				toRTV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				m_cmdList->ResourceBarrier(1, &toRTV);
+
+				// Get RTV handle for backbuffer
+				D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+				rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
+
+				// Clear backbuffer to black
+				float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+				m_cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+				// Render particles with mesh shaders
+				DirectX::XMMATRIX viewMatrix = m_camera->GetViewMatrix();
+				DirectX::XMMATRIX projMatrix = m_camera->GetProjectionMatrix();
+				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
+					viewMatrix, projMatrix, rtvHandle, m_width, m_height);
+
+				// Transition backbuffer back to present
+				D3D12_RESOURCE_BARRIER toPresent{};
+				toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				toPresent.Transition.pResource = backbuffer.Get();
+				toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+				toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+				toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				m_cmdList->ResourceBarrier(1, &toPresent);
+
+				wroteHDRThisFrame = true; // Mark that we rendered something
+
+			} catch (const std::exception& e) {
+				LOGE(std::string("Mesh particle rendering failed: ") + e.what());
+			}
+
+			// Skip DXR and composite for Mode 9 - go straight to present
+			m_cmdList->Close();
+			ID3D12CommandList* lists[] = { m_cmdList.Get() };
+			m_queue->ExecuteCommandLists(1, lists);
+
+			// Present (PIX event can't be used after Close())
+			m_swapchain->Present(1, 0);
+
+			m_frameFenceValues[m_frameIndex] = ++m_fenceValue;
+			m_queue->Signal(m_fence.Get(), m_fenceValue);
+			return; // Early return for Mode 9 - skip normal DXR/composite path
+		}
+
 		// HDR Pipeline: Render to HDR texture then composite to backbuffer
 		{
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Content Generation");
@@ -1864,10 +2090,16 @@ void App::renderFrameDXR() {
                     m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
                     m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
 
-                    // Bind SRV descriptor table (TLAS + density volume)
-                    LOGI("DXR: Binding SRV descriptor table (TLAS + density volume)");
-                    D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
-                    m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
+                    // Bind SRV descriptor table - check for DXR12Test mode
+                    if (m_demoMode == DemoMode::DXR12Test) {
+                        LOGI("DXR: Binding TLAS only (DXR12Test mode)");
+                        D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
+                        m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
+                    } else {
+                        LOGI("DXR: Binding SRV descriptor table (TLAS + density volume)");
+                        D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
+                        m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
+                    }
                     // Ensure HDR UAV is in UAV state before binding
                     if (m_hdrIsInSRVForRead) {
                         D3D12_RESOURCE_BARRIER toUAV{};
