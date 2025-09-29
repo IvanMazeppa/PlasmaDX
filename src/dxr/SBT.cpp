@@ -49,19 +49,28 @@ void SBT::AddHitGroupRecord(const ShaderRecord& rec) {
 void SBT::Build() {
 	LOGI("SBT: Building real GPU shader binding table");
 
+	// Enhanced debugging for shader identifier validation
+	LOGI("SBT: Validating shader identifiers...");
+	LOGI("SBT: Raygen record count: 1");
+	LOGI("SBT: Miss record count: " + std::to_string(m_miss.size()));
+	LOGI("SBT: Hit group record count: " + std::to_string(m_hit.size()));
+
 	// Validate shader identifiers first
 	if (!m_raygen.shaderIdentifier) {
-		LOGE("SBT: Cannot build - raygen shader identifier is NULL");
+		LOGE("SBT: CRITICAL - raygen shader identifier is NULL! SBT build FAILED!");
+		LOGE("SBT: This will cause GPU hang if DispatchRays is called!");
 		return;
 	}
 
 	if (m_miss.empty() || !m_miss[0].shaderIdentifier) {
-		LOGE("SBT: Cannot build - miss shader identifier is NULL");
+		LOGE("SBT: CRITICAL - miss shader identifier is NULL! SBT build FAILED!");
+		LOGE("SBT: Miss records available: " + std::to_string(m_miss.size()));
 		return;
 	}
 
 	if (m_hit.empty() || !m_hit[0].shaderIdentifier) {
-		LOGE("SBT: Cannot build - hit group shader identifier is NULL");
+		LOGE("SBT: CRITICAL - hit group shader identifier is NULL! SBT build FAILED!");
+		LOGE("SBT: Hit group records available: " + std::to_string(m_hit.size()));
 		return;
 	}
 

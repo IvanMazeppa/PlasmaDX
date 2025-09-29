@@ -1,6 +1,9 @@
 #include "core/App.h"
 #include "utils/Logger.h"
 #include "utils/Env.h"
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 // Workaround for Visual C++ FMA3/AVX illegal instruction bug
 extern "C" int _set_FMA3_enable(int flag);
@@ -14,7 +17,19 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nCmdShow) {
 	// Set up file logging immediately
 	std::string logFile = Env::GetString("PLASMADX_LOG_FILE");
 	if (logFile.empty()) {
-		logFile = "PlasmaDX.log";
+		// Create logs directory if it doesn't exist
+		CreateDirectoryA("logs", nullptr);
+
+		// Generate timestamped filename
+		auto now = std::chrono::system_clock::now();
+		auto time_t = std::chrono::system_clock::to_time_t(now);
+		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+
+		std::ostringstream oss;
+		oss << "logs/plasmadx_"
+		    << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+		    << "_" << std::setfill('0') << std::setw(3) << ms.count() << ".log";
+		logFile = oss.str();
 	}
 	SetLogFile(logFile);
 

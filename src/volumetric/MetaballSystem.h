@@ -5,6 +5,9 @@
 #include <wrl/client.h>
 #include <vector>
 #include <cstdint>
+#include <thread>
+#include <barrier>
+#include <functional>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -84,6 +87,7 @@ public:
     void SetupLavaLampPreset();      // Classic lava lamp behavior
     void SetupPlasmaStormPreset();   // More chaotic plasma movement
     void SetupGentleBubblesPreset(); // Slow, peaceful motion
+    void SetupMetallicSixMergePreset(); // 6 large metaballs, slow motion, designed to merge
 
     // Interactive controls
     void AddMetaball(XMFLOAT3 position, float temperature = 0.5f);
@@ -98,6 +102,11 @@ public:
     D3D12_GPU_DESCRIPTOR_HANDLE GetMetaballSRV() const { return m_metaballSrvGpu; }
     uint32_t GetMetaballCount() const { return static_cast<uint32_t>(m_metaballs.size()); }
 
+    // Procedural plasma support - encode plasma parameters as metaball data
+    void EncodeProceduralPlasmaData(const XMFLOAT3& containerCenter, float containerRadius,
+                                   const XMFLOAT3& flowDirection, float flowSpeed,
+                                   const XMFLOAT3& secondaryFlow, float turbulence);
+
 private:
     void updateSingleMetaball(Metaball& metaball, float deltaTime);
     Metaball createRandomMetaball() const;  // Utility for interactive add
@@ -106,17 +115,21 @@ private:
     void applyContainerConstraints();
     float evaluateMetaballField(const XMFLOAT3& position, const Metaball& metaball) const;
 
-    // SPH physics methods
+    // SPH physics methods (original single-threaded)
     void updateSPHPhysics(float deltaTime);
     void calculateDensityAndPressure();
     void calculatePressureForces();
     void calculateViscosityForces();
     void integrateSPHForces(float deltaTime);
 
+    // Simple orbital physics for stable, beautiful motion
+    void updateSimpleOrbitalPhysics(float deltaTime);
+
     // SPH kernel functions
     float sphKernel(float distance, float smoothingRadius) const;
     float sphKernelDerivative(float distance, float smoothingRadius) const;
     XMFLOAT3 sphKernelGradient(const XMFLOAT3& vec, float distance, float smoothingRadius) const;
+
 
     // Metaball data
     std::vector<Metaball> m_metaballs;

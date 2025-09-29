@@ -32,6 +32,9 @@ public:
                             DirectX::XMFLOAT3 centerUVW, float radiusUVW, float densityValue);
     // Metaball-based lava lamp density filling
     void FillMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, MetaballSystem* metaballSystem);
+    // GPU-accelerated accretion disk filling
+    void FillAccretionDisk(ComPtr<ID3D12GraphicsCommandList4> cmdList, float time);
+    void FillGPUMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, class GPUMetaballSystem* gpuMetaballs);
     void DebugSlice(ComPtr<ID3D12GraphicsCommandList4> cmdList, ComPtr<ID3D12Resource> hdrTarget,
                    D3D12_GPU_DESCRIPTOR_HANDLE hdrUav, uint32_t sliceZ);
 
@@ -60,6 +63,7 @@ public:
 private:
     bool CreatePipelines(ComPtr<ID3D12Device5> device);
     bool CreateRootSignatures(ComPtr<ID3D12Device5> device);
+    bool CreateAccretionDiskPSO();
     void transitionResource(ComPtr<ID3D12GraphicsCommandList4> cmdList,
                             ID3D12Resource* resource,
                             D3D12_RESOURCE_STATES& currentState,
@@ -73,10 +77,12 @@ private:
     ComPtr<ID3D12RootSignature> m_sliceRootSig;
     ComPtr<ID3D12RootSignature> m_advectRootSig; // VOL_0004
     ComPtr<ID3D12RootSignature> m_metaballRootSig; // Metaball fill root signature
+    ComPtr<ID3D12RootSignature> m_accretionRootSig; // Accretion disk root signature
     ComPtr<ID3D12PipelineState> m_fillPSO;
     ComPtr<ID3D12PipelineState> m_slicePSO;
     ComPtr<ID3D12PipelineState> m_advectPSO; // VOL_0004
     ComPtr<ID3D12PipelineState> m_metaballPSO; // Metaball fill PSO
+    ComPtr<ID3D12PipelineState> m_accretionPSO; // Accretion disk PSO
     ComPtr<ID3D12Resource> m_advectCB;       // VOL_0004 constants (b0)
 
     VolumePreset m_currentPreset;

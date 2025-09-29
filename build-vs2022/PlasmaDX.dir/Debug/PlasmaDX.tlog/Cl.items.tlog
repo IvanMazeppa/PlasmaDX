@@ -14,3 +14,6 @@ D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\DensityVolume.cpp;D
 D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\VolumeRenderer.cpp;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\PlasmaDX.dir\Debug\VolumeRenderer.obj
 D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\RayMarcher.cpp;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\PlasmaDX.dir\Debug\RayMarcher.obj
 D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\MetaballSystem.cpp;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\PlasmaDX.dir\Debug\MetaballSystem.obj
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\ProceduralPlasma.cpp;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\PlasmaDX.dir\Debug\ProceduralPlasma.obj
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\GPUMetaballSystem.cpp;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\PlasmaDX.dir\Debug\GPUMetaballSystem.obj
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\particles\ParticleSystem.cpp;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\PlasmaDX.dir\Debug\ParticleSystem.obj

@@ -1,5 +1,6 @@
 #include "DensityVolume.h"
 #include "MetaballSystem.h"
+#include "GPUMetaballSystem.h"
 #include "../utils/Logger.h"
 #include "../utils/DescriptorHeap.h"
 #include <d3dx12/d3dx12.h>
@@ -396,6 +397,10 @@ void DensityVolume::Shutdown() {
     m_fillPSO.Reset();
     m_sliceRootSig.Reset();
     m_fillRootSig.Reset();
+    m_metaballPSO.Reset();
+    m_metaballRootSig.Reset();
+    m_accretionPSO.Reset();
+    m_accretionRootSig.Reset();
     m_densityA.Reset();
     m_densityB.Reset();
 }
@@ -711,31 +716,34 @@ void DensityVolume::FillMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, Me
 
         // Create root signature for metaball shader
         // Layout: UAV (u0), SRV for metaballs (t0), CBV for constants (b0)
+
+        // Use static arrays to ensure lifetime extends beyond serialization
+        static D3D12_DESCRIPTOR_RANGE1 ranges[2];
         D3D12_ROOT_PARAMETER1 rootParams[3] = {};
 
         // UAV for density texture (u0)
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[0].NumDescriptors = 1;
+        ranges[0].BaseShaderRegister = 0;
+        ranges[0].RegisterSpace = 0;
+        ranges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
         rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        D3D12_DESCRIPTOR_RANGE1 uavRange = {};
-        uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-        uavRange.NumDescriptors = 1;
-        uavRange.BaseShaderRegister = 0;
-        uavRange.RegisterSpace = 0;
-        uavRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
         rootParams[0].DescriptorTable.NumDescriptorRanges = 1;
-        rootParams[0].DescriptorTable.pDescriptorRanges = &uavRange;
+        rootParams[0].DescriptorTable.pDescriptorRanges = &ranges[0];
 
         // SRV for metaball data (t0)
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[1].NumDescriptors = 1;
+        ranges[1].BaseShaderRegister = 0;
+        ranges[1].RegisterSpace = 0;
+        ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
         rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        D3D12_DESCRIPTOR_RANGE1 srvRange = {};
-        srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors = 1;
-        srvRange.BaseShaderRegister = 0;
-        srvRange.RegisterSpace = 0;
-        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
         rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
-        rootParams[1].DescriptorTable.pDescriptorRanges = &srvRange;
+        rootParams[1].DescriptorTable.pDescriptorRanges = &ranges[1];
 
         // CBV for metaball constants (b0)
         rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -752,16 +760,22 @@ void DensityVolume::FillMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, Me
         ComPtr<ID3DBlob> signature, error;
         HRESULT hr = D3D12SerializeVersionedRootSignature(&rootSigDesc, &signature, &error);
         if (FAILED(hr)) {
-            LOGE("Failed to serialize metaball root signature");
+            LOGE("Failed to serialize metaball root signature, HRESULT: 0x" + std::to_string(hr));
+            if (error) {
+                std::string errorMsg((char*)error->GetBufferPointer(), error->GetBufferSize());
+                LOGE("Serialization error: " + errorMsg);
+            }
             return;
         }
+        LOGI("Metaball root signature serialized successfully");
 
         hr = device->CreateRootSignature(0, signature->GetBufferPointer(),
             signature->GetBufferSize(), IID_PPV_ARGS(&m_metaballRootSig));
         if (FAILED(hr)) {
-            LOGE("Failed to create metaball root signature");
+            LOGE("Failed to create metaball root signature, HRESULT: 0x" + std::to_string(hr));
             return;
         }
+        LOGI("Metaball root signature created successfully");
 
         // Create PSO
         D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
@@ -810,4 +824,184 @@ void DensityVolume::FillMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, Me
     cmdList->ResourceBarrier(1, &barrier);
 
     LOGI("Metaball density fill dispatched successfully");
+}
+
+void DensityVolume::FillAccretionDisk(ComPtr<ID3D12GraphicsCommandList4> cmdList, float time) {
+    // Ensure PSO is created
+    if (!m_accretionPSO || !m_accretionRootSig) {
+        // Create accretion disk PSO on first use
+        if (!CreateAccretionDiskPSO()) {
+            LOGE("Failed to create accretion disk PSO, falling back to analytic");
+            FillAnalytic(cmdList, time);
+            return;
+        }
+    }
+
+    // Set descriptor heap
+    if (!m_descriptorHeap) return;
+    ID3D12DescriptorHeap* heaps[] = { m_descriptorHeap->GetHeap() };
+    cmdList->SetDescriptorHeaps(1, heaps);
+
+    // Transition density texture to UAV state
+    ID3D12Resource* currentDensity = m_srcIsA ? m_densityA.Get() : m_densityB.Get();
+    D3D12_RESOURCE_STATES& currentState = m_srcIsA ? m_stateA : m_stateB;
+    transitionResource(cmdList, currentDensity, currentState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    // Set compute pipeline
+    cmdList->SetComputeRootSignature(m_accretionRootSig.Get());
+    cmdList->SetPipelineState(m_accretionPSO.Get());
+
+    // Bind UAV for density texture
+    D3D12_GPU_DESCRIPTOR_HANDLE currentUAV = m_srcIsA ? m_uavGpuA : m_uavGpuB;
+    cmdList->SetComputeRootDescriptorTable(0, currentUAV);
+
+    // Set accretion disk constants
+    struct AccretionConstants {
+        float time;
+        float innerRadius;       // 0.2
+        float outerRadius;       // 2.5
+        float diskThickness;     // 0.3
+        DirectX::XMFLOAT3 diskCenter; // (0,0,0)
+        float rotationSpeed;     // 1.5
+        float turbulence;        // 0.4
+        float densityScale;      // 2.0
+        DirectX::XMFLOAT3 diskNormal; // (0,1,0)
+        float spiralArms;        // 3.0
+        float magneticField;     // 0.8
+        float accretionRate;     // 1.2
+        float coronaHeight;      // 0.8
+    } constants = {
+        time,
+        0.2f,   // Inner radius - smaller for more dramatic central heating
+        2.5f,   // Outer radius
+        0.3f,   // Disk thickness
+        {0.0f, 0.0f, 0.0f}, // Center
+        1.5f,   // Rotation speed
+        0.4f,   // Turbulence
+        2.0f,   // Density scale - higher for more visual impact
+        {0.0f, 1.0f, 0.0f}, // Horizontal disk normal
+        3.0f,   // Spiral arms
+        0.8f,   // Magnetic field strength
+        1.2f,   // Accretion rate
+        0.8f    // Corona height
+    };
+
+    cmdList->SetComputeRoot32BitConstants(1, sizeof(constants) / 4, &constants, 0);
+
+    // Dispatch compute shader
+    uint32_t groups = (m_dimension + 7) / 8;
+    cmdList->Dispatch(groups, groups, groups);
+
+    // UAV barrier to ensure writes are visible
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = currentDensity;
+    cmdList->ResourceBarrier(1, &barrier);
+
+    LOGI("Accretion disk density fill dispatched successfully");
+}
+
+bool DensityVolume::CreateAccretionDiskPSO() {
+    ComPtr<ID3D12Device> device;
+    m_densityA->GetDevice(IID_PPV_ARGS(&device));
+
+    // Load accretion disk shader
+    std::vector<uint8_t> shaderData;
+    std::vector<std::string> possiblePaths = {
+        "shaders/vol/accretion_disk_fill.dxil",
+        "shaders/accretion_disk_fill.dxil",
+        "../shaders/vol/accretion_disk_fill.dxil"
+    };
+
+    std::ifstream file;
+    for (const auto& path : possiblePaths) {
+        file.open(path, std::ios::binary | std::ios::ate);
+        if (file.is_open()) {
+            size_t size = file.tellg();
+            file.seekg(0, std::ios::beg);
+            shaderData.resize(size);
+            file.read(reinterpret_cast<char*>(shaderData.data()), size);
+            file.close();
+            LOGI("Loaded accretion disk shader from: " + path);
+            break;
+        }
+    }
+
+    if (shaderData.empty()) {
+        LOGE("Failed to load accretion disk shader from any path");
+        return false;
+    }
+
+    // Create root signature for accretion disk (simplified - density only for now)
+    CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0);  // u0: g_density
+
+    CD3DX12_ROOT_PARAMETER1 rootParams[2];
+    rootParams[0].InitAsDescriptorTable(1, &ranges[0]);     // Density UAV
+    rootParams[1].InitAsConstants(20, 0);                   // AccretionConstants (b0)
+
+    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
+    rootSigDesc.Init_1_1(_countof(rootParams), rootParams, 0, nullptr,
+                         D3D12_ROOT_SIGNATURE_FLAG_NONE);
+
+    ComPtr<ID3DBlob> serializedRootSig;
+    ComPtr<ID3DBlob> errorBlob;
+    HRESULT hr = D3DX12SerializeVersionedRootSignature(&rootSigDesc,
+                                                       D3D_ROOT_SIGNATURE_VERSION_1_1,
+                                                       &serializedRootSig, &errorBlob);
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            LOGE("Root signature serialization failed: " +
+                 std::string(static_cast<char*>(errorBlob->GetBufferPointer())));
+        }
+        return false;
+    }
+
+    hr = device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(),
+                                     serializedRootSig->GetBufferSize(),
+                                     IID_PPV_ARGS(&m_accretionRootSig));
+    if (FAILED(hr)) {
+        LOGE("Failed to create accretion disk root signature");
+        return false;
+    }
+
+    // Create compute pipeline state
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = m_accretionRootSig.Get();
+    psoDesc.CS.pShaderBytecode = shaderData.data();
+    psoDesc.CS.BytecodeLength = shaderData.size();
+
+    hr = device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_accretionPSO));
+    if (FAILED(hr)) {
+        LOGE("Failed to create accretion disk PSO, hr=0x" + std::to_string(hr));
+        return false;
+    }
+
+    LOGI("Successfully created accretion disk PSO and root signature");
+    return true;
+}
+
+void DensityVolume::FillGPUMetaballs(ComPtr<ID3D12GraphicsCommandList4> cmdList, GPUMetaballSystem* gpuMetaballs) {
+    if (!gpuMetaballs || !m_densityA || !m_densityB) {
+        LOGW("FillGPUMetaballs: Invalid GPU metaball system or density textures");
+        return;
+    }
+
+    // Get current density texture for writing
+    ID3D12Resource* currentDensity = m_srcIsA ? m_densityA.Get() : m_densityB.Get();
+
+    // Transition density texture to UAV state for writing
+    D3D12_RESOURCE_STATES currentState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    transitionResource(cmdList, currentDensity, currentState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    // Get the correct UAV handle for the current density texture
+    D3D12_GPU_DESCRIPTOR_HANDLE currentUAV = m_srcIsA ? m_uavGpuA : m_uavGpuB;
+
+    // Let the GPU metaball system fill the density volume directly
+    gpuMetaballs->FillDensityVolume(cmdList, ComPtr<ID3D12Resource>(currentDensity), m_dimension, currentUAV);
+
+    // Transition back to SRV state for sampling
+    transitionResource(cmdList, currentDensity, currentState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+    LOGI("GPU metaball density fill completed");
 }

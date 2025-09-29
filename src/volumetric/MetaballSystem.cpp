@@ -50,6 +50,10 @@ bool MetaballSystem::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* de
         LOGE("Failed to map metaball constant buffer");
         return false;
     }
+    // Initialize constants memory to zero to avoid undefined reads in shaders
+    if (m_constantMapped) {
+        std::memset(m_constantMapped, 0, sizeof(MetaballConstants));
+    }
 
     // Create metaball data buffer
     D3D12_RESOURCE_DESC mbDesc = {};
@@ -79,6 +83,10 @@ bool MetaballSystem::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* de
         LOGE("Failed to map metaball data buffer");
         return false;
     }
+    // Zero-initialize the entire GPU data buffer to ensure safe defaults for any unread slots
+    if (m_metaballMapped) {
+        std::memset(m_metaballMapped, 0, sizeof(MetaballGPUData) * MAX_METABALLS);
+    }
 
     // Create SRV for metaball structured buffer
     m_metaballSrvIndex = m_descriptorHeap->Allocate();
@@ -99,10 +107,11 @@ bool MetaballSystem::Initialize(ComPtr<ID3D12Device5> device, DescriptorHeap* de
     device->CreateShaderResourceView(m_metaballBuffer.Get(), &srvDesc, m_metaballSrvCpu);
     LOGI("Created SRV for metaball structured buffer at index " + std::to_string(m_metaballSrvIndex));
 
-    // Initialize with lava lamp preset
-    SetupLavaLampPreset();
+    // Initialize with metallic six-merge preset by default for Mode 7 experiments
+    SetupMetallicSixMergePreset();
 
     LOGI("MetaballSystem initialized with " + std::to_string(m_metaballs.size()) + " metaballs");
+    LOGI("Simple orbital physics: Stable motion around gravity center");
     return true;
 }
 
@@ -160,7 +169,7 @@ void MetaballSystem::SetupLavaLampPreset() {
     std::uniform_real_distribution<float> tempDist(0.3f, 0.9f);  // Higher temperature range for plasma
     std::uniform_real_distribution<float> sizeDist(0.05f, 0.12f); // Smaller particles for fluid simulation
 
-    const int numBalls = 100;  // Increased for SPH simulation
+    const int numBalls = std::min(100, static_cast<int>(MAX_METABALLS));  // Respect buffer limits
     for (int i = 0; i < numBalls; ++i) {
         Metaball ball;
         ball.position = XMFLOAT3(posDist(gen), posDist(gen), posDist(gen));
@@ -190,24 +199,64 @@ void MetaballSystem::SetupLavaLampPreset() {
     LOGI("Created " + std::to_string(numBalls) + " metaballs for lava lamp simulation");
 }
 
+void MetaballSystem::SetupMetallicSixMergePreset() {
+    LOGI("Setting up metallic six-merge preset...");
+    m_metaballs.clear();
+
+    // Physics tuned for slow, heavy metallic blobs
+    m_constants.gravity = XMFLOAT3(0.0f, -1.0f, 0.0f);
+    m_constants.buoyancyStrength = 0.6f;
+    m_constants.viscosity = 1.2f;           // Higher viscosity for slow motion
+    m_constants.containerRadius = 1.4f;     // Slightly larger container
+    m_constants.containerCenter = XMFLOAT3(0.0f, 0.0f, 0.0f);
+    m_constants.mergeDistance = 0.22f;      // Encourage merging
+    m_constants.splitThreshold = 2.2f;      // Avoid frequent splits
+    m_constants.noiseStrength = 0.02f;      // Minimal noise for smooth metallic motion
+
+    // SPH-ish params (even if we use simple orbital, keep consistent ranges)
+    m_constants.sphSmoothingRadius = 0.18f;
+    m_constants.sphRestDensity = 1100.0f;
+    m_constants.sphPressureConstant = 80.0f;
+    m_constants.sphViscosityConstant = 0.5f;
+    m_constants.plasmaIntensity = 1.0f;
+
+    // Place 6 larger metaballs around a ring for natural merging
+    const int numBalls = 6;
+    const float ringRadius = 0.7f;
+    for (int i = 0; i < numBalls; ++i) {
+        float angle = float(i) / float(numBalls) * 6.2831853f; // 2*pi
+        Metaball ball;
+        ball.position = XMFLOAT3(ringRadius * std::cos(angle), 0.0f, ringRadius * std::sin(angle));
+        ball.velocity = XMFLOAT3(0.0f, 0.0f, 0.0f);
+        ball.radius = 0.20f;         // Larger for metallic lobe look
+        ball.targetRadius = ball.radius;
+        ball.temperature = 0.55f;    // Moderate
+        ball.mass = ball.radius * ball.radius * 0.8f;
+        // Cooler metallic tones (will be recolored in shader to be metallic)
+        ball.color = XMFLOAT3(0.9f, 0.9f, 0.95f);
+
+        // Initialize SPH properties
+        ball.density = m_constants.sphRestDensity;
+        ball.pressure = 0.0f;
+        ball.pressureForce = XMFLOAT3(0.0f, 0.0f, 0.0f);
+        ball.viscosityForce = XMFLOAT3(0.0f, 0.0f, 0.0f);
+
+        m_metaballs.push_back(ball);
+    }
+
+    LOGI("Created 6 metallic metaballs (slow merge preset)");
+}
+
 void MetaballSystem::UpdatePhysics(float deltaTime) {
     m_time += deltaTime;
     m_constants.time = m_time;
     m_constants.deltaTime = deltaTime;
     m_constants.numMetaballs = static_cast<uint32_t>(m_metaballs.size());
 
-    // SPH fluid simulation for realistic plasma behavior
-    if (m_metaballs.size() > 50) {
-        // Use SPH for large particle counts (realistic fluid dynamics)
-        updateSPHPhysics(deltaTime);
-    } else {
-        // Use simple physics for small counts (fallback)
-        for (auto& metaball : m_metaballs) {
-            updateSingleMetaball(metaball, deltaTime);
-        }
-        handleCollisions();
-        handleMergingAndSplitting();
-    }
+    // Slow, smooth orbital motion; then apply collisions and merging
+    updateSimpleOrbitalPhysics(deltaTime * 0.5f);
+    handleCollisions();
+    handleMergingAndSplitting();
 
     // Always apply container constraints
     applyContainerConstraints();
@@ -423,18 +472,125 @@ void MetaballSystem::handleMergingAndSplitting() {
     }
 }
 
+void MetaballSystem::updateSimpleOrbitalPhysics(float deltaTime) {
+    // Simple orbital physics around a central gravity point for beautiful, dynamic motion
+    const XMFLOAT3& gravityCenter = m_constants.containerCenter;  // Gravity center point
+    const float gravityStrength = 4.0f;   // Stronger gravity for faster motion
+    const float orbitalSpeed = 3.0f;      // Faster orbital velocity for visibility
+    const float dampingFactor = 0.95f;    // Less damping for more dynamic motion
+
+    // Simple orbital motion around gravity center for beautiful, stable animation
+    for (auto& metaball : m_metaballs) {
+        // Calculate vector from metaball to gravity center
+        XMFLOAT3 toCenter = {
+            gravityCenter.x - metaball.position.x,
+            gravityCenter.y - metaball.position.y,
+            gravityCenter.z - metaball.position.z
+        };
+
+        float distance = std::sqrt(toCenter.x * toCenter.x + toCenter.y * toCenter.y + toCenter.z * toCenter.z);
+
+        if (distance > 0.001f) {
+            // Normalize direction vector
+            XMFLOAT3 direction = {
+                toCenter.x / distance,
+                toCenter.y / distance,
+                toCenter.z / distance
+            };
+
+            // Apply gravity force toward center (distance-based falloff)
+            float gravityForce = gravityStrength / (1.0f + distance * 0.5f);
+            XMFLOAT3 gravity = {
+                direction.x * gravityForce,
+                direction.y * gravityForce,
+                direction.z * gravityForce
+            };
+
+            // Calculate 3D orbital motion with varied orbital planes per metaball
+            // Use metaball's initial properties to determine its orbital plane
+            float orbitAngle = metaball.mass * 6.28f; // Different orbit angle per metaball
+            float inclination = metaball.temperature * 1.57f; // 0 to PI/2 inclination based on temperature
+
+            // Create two perpendicular vectors to the radial direction for 3D orbital motion
+            XMFLOAT3 axis1 = { -toCenter.y, toCenter.x, 0.0f };
+            XMFLOAT3 axis2 = {
+                toCenter.x * toCenter.z,
+                toCenter.y * toCenter.z,
+                -(toCenter.x * toCenter.x + toCenter.y * toCenter.y)
+            };
+
+            // Normalize the axes
+            float len1 = std::sqrt(axis1.x*axis1.x + axis1.y*axis1.y + axis1.z*axis1.z);
+            float len2 = std::sqrt(axis2.x*axis2.x + axis2.y*axis2.y + axis2.z*axis2.z);
+            if (len1 > 0.001f) { axis1.x /= len1; axis1.y /= len1; axis1.z /= len1; }
+            if (len2 > 0.001f) { axis2.x /= len2; axis2.y /= len2; axis2.z /= len2; }
+
+            // Combine axes with time-based rotation for orbital motion
+            float timeAngle = m_time * orbitalSpeed + orbitAngle;
+            XMFLOAT3 tangent = {
+                axis1.x * std::cos(timeAngle) + axis2.x * std::sin(timeAngle) * std::cos(inclination),
+                axis1.y * std::cos(timeAngle) + axis2.y * std::sin(timeAngle) * std::cos(inclination),
+                axis1.z * std::cos(timeAngle) + axis2.z * std::sin(timeAngle) * std::cos(inclination)
+            };
+
+            float tangentLength = std::sqrt(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z);
+            if (tangentLength > 0.001f) {
+                tangent.x /= tangentLength;
+                tangent.y /= tangentLength;
+                tangent.z /= tangentLength;
+            }
+
+            // Apply orbital velocity (temperature affects speed)
+            float speedMultiplier = orbitalSpeed * (0.8f + metaball.temperature * 0.4f);
+            XMFLOAT3 orbitalForce = {
+                tangent.x * speedMultiplier,
+                tangent.y * speedMultiplier,
+                tangent.z * speedMultiplier
+            };
+
+            // Temperature-based vertical motion (hot rises, cold sinks)
+            float buoyancy = m_constants.buoyancyStrength * (metaball.temperature - 0.5f) * 2.0f;
+
+            // Combine all forces
+            XMFLOAT3 totalForce = {
+                gravity.x + orbitalForce.x,
+                gravity.y + orbitalForce.y + buoyancy,
+                gravity.z + orbitalForce.z
+            };
+
+            // Update velocity with forces
+            metaball.velocity.x = (metaball.velocity.x + totalForce.x * deltaTime) * dampingFactor;
+            metaball.velocity.y = (metaball.velocity.y + totalForce.y * deltaTime) * dampingFactor;
+            metaball.velocity.z = (metaball.velocity.z + totalForce.z * deltaTime) * dampingFactor;
+
+            // Update position with velocity
+            metaball.position.x += metaball.velocity.x * deltaTime;
+            metaball.position.y += metaball.velocity.y * deltaTime;
+            metaball.position.z += metaball.velocity.z * deltaTime;
+
+            // Smooth size variation based on temperature and motion
+            float targetRadius = 0.06f + metaball.temperature * 0.06f + std::sin(m_time * 2.0f + distance) * 0.02f;
+            metaball.radius = metaball.radius * 0.95f + targetRadius * 0.05f; // Smooth interpolation
+        }
+    }
+}
+
 void MetaballSystem::UploadToGPU(ComPtr<ID3D12GraphicsCommandList4> cmdList) {
     // Update constant buffer
     if (m_constantMapped) {
         memcpy(m_constantMapped, &m_constants, sizeof(MetaballConstants));
     }
 
-    // Update metaball data buffer
+    // Update metaball data buffer with bounds checking
     if (m_metaballMapped && !m_metaballs.empty()) {
         std::vector<MetaballGPUData> gpuData;
-        gpuData.reserve(m_metaballs.size());
 
-        for (const auto& metaball : m_metaballs) {
+        // Critical: Prevent buffer overflow by limiting to MAX_METABALLS
+        size_t metaballCount = std::min(m_metaballs.size(), static_cast<size_t>(MAX_METABALLS));
+        gpuData.reserve(metaballCount);
+
+        for (size_t i = 0; i < metaballCount; ++i) {
+            const auto& metaball = m_metaballs[i];
             MetaballGPUData data;
             data.position = metaball.position;
             data.radius = metaball.radius;
@@ -446,244 +602,42 @@ void MetaballSystem::UploadToGPU(ComPtr<ID3D12GraphicsCommandList4> cmdList) {
         }
 
         size_t dataSize = gpuData.size() * sizeof(MetaballGPUData);
-        memcpy(m_metaballMapped, gpuData.data(), dataSize);
-    }
-}
+        const size_t maxBufferSize = MAX_METABALLS * sizeof(MetaballGPUData);
 
-// ============================================================================
-// SPH FLUID PHYSICS IMPLEMENTATION
-// ============================================================================
-
-void MetaballSystem::updateSPHPhysics(float deltaTime) {
-    // Step 1: Calculate density and pressure for all particles
-    calculateDensityAndPressure();
-
-    // Step 2: Calculate pressure forces
-    calculatePressureForces();
-
-    // Step 3: Calculate viscosity forces
-    calculateViscosityForces();
-
-    // Step 4: Integrate forces and update positions
-    integrateSPHForces(deltaTime);
-}
-
-void MetaballSystem::calculateDensityAndPressure() {
-    const float h = m_constants.sphSmoothingRadius;
-    const float h2 = h * h;
-
-    // Reset densities
-    for (auto& particle : m_metaballs) {
-        particle.density = 0.0f;
-    }
-
-    // Calculate density for each particle
-    for (size_t i = 0; i < m_metaballs.size(); ++i) {
-        auto& pi = m_metaballs[i];
-
-        for (size_t j = 0; j < m_metaballs.size(); ++j) {
-            auto& pj = m_metaballs[j];
-
-            XMFLOAT3 diff = {
-                pi.position.x - pj.position.x,
-                pi.position.y - pj.position.y,
-                pi.position.z - pj.position.z
-            };
-
-            float distance2 = diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
-
-            if (distance2 < h2) {
-                float distance = sqrtf(distance2);
-                pi.density += pj.mass * sphKernel(distance, h);
+        // Double-check buffer bounds before copy
+        if (dataSize <= maxBufferSize) {
+            // Copy used elements
+            std::memcpy(m_metaballMapped, gpuData.data(), dataSize);
+            // Zero the remainder to avoid shaders reading stale/uninitialized data
+            size_t remainder = maxBufferSize - dataSize;
+            if (remainder > 0) {
+                std::memset(static_cast<char*>(m_metaballMapped) + dataSize, 0, remainder);
             }
-        }
-
-        // Calculate pressure from density (equation of state)
-        pi.pressure = m_constants.sphPressureConstant * (pi.density - m_constants.sphRestDensity);
-
-        // Ensure minimum density to avoid instabilities
-        pi.density = std::max(pi.density, m_constants.sphRestDensity * 0.1f);
-    }
-}
-
-void MetaballSystem::calculatePressureForces() {
-    const float h = m_constants.sphSmoothingRadius;
-    const float h2 = h * h;
-
-    // Reset pressure forces
-    for (auto& particle : m_metaballs) {
-        particle.pressureForce = { 0.0f, 0.0f, 0.0f };
-    }
-
-    // Calculate pressure forces between particles
-    for (size_t i = 0; i < m_metaballs.size(); ++i) {
-        auto& pi = m_metaballs[i];
-
-        for (size_t j = i + 1; j < m_metaballs.size(); ++j) {
-            auto& pj = m_metaballs[j];
-
-            XMFLOAT3 diff = {
-                pi.position.x - pj.position.x,
-                pi.position.y - pj.position.y,
-                pi.position.z - pj.position.z
-            };
-
-            float distance2 = diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
-
-            if (distance2 < h2) {
-                float distance = sqrtf(distance2);
-                if (distance > 0.0001f) {
-                    // Pressure gradient kernel
-                    XMFLOAT3 gradient = sphKernelGradient(diff, distance, h);
-
-                    // Symmetric pressure force
-                    float pressureTerm = (pi.pressure / (pi.density * pi.density) +
-                                         pj.pressure / (pj.density * pj.density));
-
-                    XMFLOAT3 force = {
-                        -pj.mass * pressureTerm * gradient.x,
-                        -pj.mass * pressureTerm * gradient.y,
-                        -pj.mass * pressureTerm * gradient.z
-                    };
-
-                    // Apply force (Newton's 3rd law)
-                    pi.pressureForce.x += force.x;
-                    pi.pressureForce.y += force.y;
-                    pi.pressureForce.z += force.z;
-
-                    pj.pressureForce.x -= force.x;
-                    pj.pressureForce.y -= force.y;
-                    pj.pressureForce.z -= force.z;
-                }
-            }
+        } else {
+            LOGE("Buffer overflow prevented: trying to copy " + std::to_string(dataSize) +
+                 " bytes into " + std::to_string(maxBufferSize) + " byte buffer");
         }
     }
 }
 
-void MetaballSystem::calculateViscosityForces() {
-    const float h = m_constants.sphSmoothingRadius;
-    const float h2 = h * h;
-    const float viscosity = m_constants.sphViscosityConstant;
+void MetaballSystem::EncodeProceduralPlasmaData(const XMFLOAT3& containerCenter, float containerRadius,
+                                               const XMFLOAT3& flowDirection, float flowSpeed,
+                                               const XMFLOAT3& secondaryFlow, float turbulence) {
+    // Clear any existing metaballs and encode procedural plasma parameters as a single "metaball"
+    m_metaballs.clear();
 
-    // Reset viscosity forces
-    for (auto& particle : m_metaballs) {
-        particle.viscosityForce = { 0.0f, 0.0f, 0.0f };
-    }
+    Metaball plasmaMetaball;
+    // Encode parameters using metaball fields (shader will interpret these correctly)
+    plasmaMetaball.position = containerCenter;        // Container center
+    plasmaMetaball.radius = containerRadius;          // Container radius
+    plasmaMetaball.velocity = flowDirection;          // Primary flow direction
+    plasmaMetaball.temperature = flowSpeed;           // Flow speed
+    plasmaMetaball.color = secondaryFlow;             // Secondary flow direction
+    plasmaMetaball.mass = turbulence;                 // Turbulence strength
 
-    // Calculate viscosity forces between particles
-    for (size_t i = 0; i < m_metaballs.size(); ++i) {
-        auto& pi = m_metaballs[i];
+    // Add procedural plasma parameters as a single metaball
+    m_metaballs.push_back(plasmaMetaball);
 
-        for (size_t j = 0; j < m_metaballs.size(); ++j) {
-            if (i == j) continue;
-
-            auto& pj = m_metaballs[j];
-
-            XMFLOAT3 diff = {
-                pi.position.x - pj.position.x,
-                pi.position.y - pj.position.y,
-                pi.position.z - pj.position.z
-            };
-
-            float distance2 = diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
-
-            if (distance2 < h2) {
-                float distance = sqrtf(distance2);
-
-                // Velocity difference
-                XMFLOAT3 velDiff = {
-                    pj.velocity.x - pi.velocity.x,
-                    pj.velocity.y - pi.velocity.y,
-                    pj.velocity.z - pi.velocity.z
-                };
-
-                // Viscosity kernel (Laplacian)
-                float kernel = sphKernelDerivative(distance, h);
-
-                float viscosityTerm = viscosity * pj.mass / pj.density * kernel;
-
-                pi.viscosityForce.x += viscosityTerm * velDiff.x;
-                pi.viscosityForce.y += viscosityTerm * velDiff.y;
-                pi.viscosityForce.z += viscosityTerm * velDiff.z;
-            }
-        }
-    }
+    LOGI("Encoded procedural plasma parameters as metaball data for Mode 8");
 }
 
-void MetaballSystem::integrateSPHForces(float deltaTime) {
-    const XMFLOAT3 gravity = m_constants.gravity;
-
-    for (auto& particle : m_metaballs) {
-        // Combine all forces
-        XMFLOAT3 totalForce = {
-            particle.pressureForce.x + particle.viscosityForce.x + gravity.x * particle.mass,
-            particle.pressureForce.y + particle.viscosityForce.y + gravity.y * particle.mass,
-            particle.pressureForce.z + particle.viscosityForce.z + gravity.z * particle.mass
-        };
-
-        // Add temperature-based buoyancy (plasma rises when hot)
-        totalForce.y += particle.temperature * m_constants.buoyancyStrength * particle.mass;
-
-        // Update velocity (F = ma, so a = F/m)
-        float invMass = 1.0f / particle.mass;
-        particle.velocity.x += totalForce.x * invMass * deltaTime;
-        particle.velocity.y += totalForce.y * invMass * deltaTime;
-        particle.velocity.z += totalForce.z * invMass * deltaTime;
-
-        // Damping to prevent explosion
-        const float damping = 0.99f;
-        particle.velocity.x *= damping;
-        particle.velocity.y *= damping;
-        particle.velocity.z *= damping;
-
-        // Update position
-        particle.position.x += particle.velocity.x * deltaTime;
-        particle.position.y += particle.velocity.y * deltaTime;
-        particle.position.z += particle.velocity.z * deltaTime;
-
-        // Update visual properties based on density and temperature
-        particle.radius = 0.08f + (particle.density / m_constants.sphRestDensity) * 0.04f;
-        particle.radius = std::max(0.05f, std::min(particle.radius, 0.15f));
-
-        // Color based on temperature and pressure
-        float tempFactor = std::max(0.0f, std::min(particle.temperature, 1.0f));
-        float pressureFactor = std::max(0.0f, std::min(particle.pressure / m_constants.sphPressureConstant, 1.0f));
-
-        particle.color.x = 0.8f + tempFactor * 0.2f;  // Red: hotter = more red
-        particle.color.y = 0.3f + pressureFactor * 0.4f; // Green: higher pressure = more green
-        particle.color.z = 0.1f + (1.0f - tempFactor) * 0.6f; // Blue: cooler = more blue
-    }
-}
-
-// SPH kernel functions (Poly6 kernel)
-float MetaballSystem::sphKernel(float distance, float smoothingRadius) const {
-    if (distance >= smoothingRadius) return 0.0f;
-
-    float h2 = smoothingRadius * smoothingRadius;
-    float q = distance / smoothingRadius;
-    float factor = h2 - distance * distance;
-    return (315.0f / (64.0f * 3.14159f * h2 * h2 * smoothingRadius)) * factor * factor * factor;
-}
-
-float MetaballSystem::sphKernelDerivative(float distance, float smoothingRadius) const {
-    if (distance >= smoothingRadius || distance <= 0.0001f) return 0.0f;
-
-    float h2 = smoothingRadius * smoothingRadius;
-    float factor = h2 - distance * distance;
-    return (315.0f / (64.0f * 3.14159f * h2 * h2 * smoothingRadius)) * 3.0f * factor * factor * (-2.0f * distance);
-}
-
-XMFLOAT3 MetaballSystem::sphKernelGradient(const XMFLOAT3& vec, float distance, float smoothingRadius) const {
-    if (distance >= smoothingRadius || distance <= 0.0001f) {
-        return { 0.0f, 0.0f, 0.0f };
-    }
-
-    float kernelDeriv = sphKernelDerivative(distance, smoothingRadius);
-    float invDistance = 1.0f / distance;
-
-    return {
-        kernelDeriv * vec.x * invDistance,
-        kernelDeriv * vec.y * invDistance,
-        kernelDeriv * vec.z * invDistance
-    };
-}

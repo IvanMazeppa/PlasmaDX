@@ -40,6 +40,12 @@ add_executable(PlasmaDX WIN32
     src/volumetric/RayMarcher.h
     src/volumetric/MetaballSystem.cpp
     src/volumetric/MetaballSystem.h
+    src/volumetric/ProceduralPlasma.cpp
+    src/volumetric/ProceduralPlasma.h
+    src/volumetric/GPUMetaballSystem.cpp
+    src/volumetric/GPUMetaballSystem.h
+    src/particles/ParticleSystem.cpp
+    src/particles/ParticleSystem.h
 )
 
 # Unicode build
@@ -218,6 +224,34 @@ add_custom_command(
     COMMENT "Compiling VOL_0004 temporal accumulation compute shader"
 )
 
+# Compile particle system shaders (Mode 9)
+set(PARTICLE_PHYSICS_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/particles/particle_physics.hlsl")
+set(PARTICLE_PHYSICS_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/particles/particle_physics.dxil")
+set(PARTICLE_MESH_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/particles/particle_mesh.hlsl")
+set(PARTICLE_MESH_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/particles/particle_mesh.dxil")
+set(PARTICLE_PIXEL_SHADER_OUTPUT "${CMAKE_SOURCE_DIR}/shaders/particles/particle_pixel.dxil")
+
+add_custom_command(
+    OUTPUT ${PARTICLE_PHYSICS_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T cs_6_0 -E main -Fo ${PARTICLE_PHYSICS_SHADER_OUTPUT} ${PARTICLE_PHYSICS_SHADER_SOURCE}
+    DEPENDS ${PARTICLE_PHYSICS_SHADER_SOURCE}
+    COMMENT "Compiling particle physics compute shader"
+)
+
+add_custom_command(
+    OUTPUT ${PARTICLE_MESH_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T ms_6_5 -E main -Fo ${PARTICLE_MESH_SHADER_OUTPUT} ${PARTICLE_MESH_SHADER_SOURCE}
+    DEPENDS ${PARTICLE_MESH_SHADER_SOURCE}
+    COMMENT "Compiling particle mesh shader"
+)
+
+add_custom_command(
+    OUTPUT ${PARTICLE_PIXEL_SHADER_OUTPUT}
+    COMMAND ${DXC_TOOL} -T ps_6_0 -E PSMain -Fo ${PARTICLE_PIXEL_SHADER_OUTPUT} ${PARTICLE_MESH_SHADER_SOURCE}
+    DEPENDS ${PARTICLE_MESH_SHADER_SOURCE}
+    COMMENT "Compiling particle pixel shader"
+)
+
 # Add shader compilation as dependency
 add_custom_target(compile_shaders DEPENDS
     ${DXR_SHADER_OUTPUT}
@@ -231,6 +265,9 @@ add_custom_target(compile_shaders DEPENDS
     ${RAYMARCH_SHADER_OUTPUT}
     ${RAYMARCH_CS_SHADER_OUTPUT}
     ${TEMPORAL_SHADER_OUTPUT}
+    ${PARTICLE_PHYSICS_SHADER_OUTPUT}
+    ${PARTICLE_MESH_SHADER_OUTPUT}
+    ${PARTICLE_PIXEL_SHADER_OUTPUT}
 )
 add_dependencies(PlasmaDX compile_shaders)
 

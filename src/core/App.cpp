@@ -14,6 +14,7 @@
 #include "../volumetric/DensityVolume.h"
 #include "../volumetric/RayMarcher.h"
 #include "../volumetric/MetaballSystem.h"
+#include "../particles/ParticleSystem.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -447,6 +448,11 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 		LOGE("Failed to create swapchain");
 		return false;
 	}
+	// Create RTVs immediately after swapchain, before heavy DXR work
+	if (!createRTVs()) {
+		LOGE("Failed to create RTVs");
+		return false;
+	}
 	// Create command allocator/list and fence before any GPU work (DXR AS build uses them)
 	if (!createCommandObjects()) {
 		LOGE("Failed to create command objects");
@@ -463,10 +469,6 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 			LOGW("Falling back to rasterization");
 			m_dxrSupported = false;
 		}
-	}
-	if (!createRTVs()) {
-		LOGE("Failed to create RTVs");
-		return false;
 	}
 	LOGI("PlasmaDX initialized successfully");
 	return true;
@@ -982,17 +984,56 @@ bool App::createSwapchain() {
 }
 
 bool App::createRTVs() {
+	LOGI("Starting RTV creation...");
+
+	// Validate prerequisites
+	if (!m_device) {
+		LOGE("RTV creation failed: Device is null");
+		return false;
+	}
+	if (!m_swapchain) {
+		LOGE("RTV creation failed: Swapchain is null");
+		return false;
+	}
+
+	// Check device removal state before proceeding
+	HRESULT deviceRemovedReason = m_device->GetDeviceRemovedReason();
+	if (deviceRemovedReason != S_OK) {
+		LOGE("Device was removed before RTV creation, reason: 0x" + std::to_string(deviceRemovedReason));
+		return false;
+	}
+
+	LOGI("Creating RTV descriptor heap...");
 	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
 	rtvDesc.NumDescriptors = kBackBufferCount;
 	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	if (FAILED(m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap)))) return false;
+	HRESULT hr = m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap));
+	if (FAILED(hr)) {
+		if (hr == DXGI_ERROR_DEVICE_REMOVED) {
+			HRESULT reason = m_device->GetDeviceRemovedReason();
+			LOGE("RTV heap creation failed due to device removal, reason: 0x" + std::to_string(reason));
+		} else {
+			LOGE("Failed to create RTV descriptor heap, HRESULT: 0x" + std::to_string(hr));
+		}
+		return false;
+	}
+	LOGI("RTV descriptor heap created successfully");
+
 	m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	D3D12_CPU_DESCRIPTOR_HANDLE start = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+
+	LOGI("Creating RTVs for " + std::to_string(kBackBufferCount) + " back buffers...");
 	for (UINT i = 0; i < kBackBufferCount; ++i) {
-		if (FAILED(m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_backbuffers[i])))) return false;
+		hr = m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_backbuffers[i]));
+		if (FAILED(hr)) {
+			LOGE("Failed to get back buffer " + std::to_string(i) + ", HRESULT: 0x" + std::to_string(hr));
+			return false;
+		}
 		D3D12_CPU_DESCRIPTOR_HANDLE dst = start; dst.ptr += SIZE_T(i) * SIZE_T(m_rtvDescriptorSize);
 		m_device->CreateRenderTargetView(m_backbuffers[i].Get(), nullptr, dst);
+		LOGI("Created RTV for back buffer " + std::to_string(i));
 	}
+	LOGI("All RTVs created successfully");
 	return true;
 }
 
@@ -1408,6 +1449,15 @@ bool App::initializeDXR() {
 			LOGI("Demo Mode: Metaball SPH (SPH physics with metaball density field rendering)");
 			// Note: Metaball system is already initialized, no additional setup needed
 			break;
+		case 9:
+			m_demoMode = DemoMode::AccretionMeshParticles;
+			LOGI("Demo Mode: Accretion Mesh Particles (NASA-quality accretion disk with 100K mesh shader particles)");
+			// Initialize mesh particle system
+			if (!initializeMeshParticleSystem()) {
+				LOGE("Failed to initialize mesh particle system - falling back to Sphere RT");
+				m_demoMode = DemoMode::SphereRT;
+			}
+			break;
 		default: m_demoMode = DemoMode::SphereRT; LOGI("Demo Mode: Default Sphere RT"); break;
 	}
 
@@ -1677,8 +1727,8 @@ void App::renderFrameDXR() {
 
     if (useHDRPipeline) {
         bool wroteHDRThisFrame = false;
-		// Update particle system (VOL_0001)
-		if (m_particles) {
+		// Update particle system (VOL_0001) - Skip in demo mode 9 as it conflicts with mesh particles
+		if (m_particles && m_demoMode != DemoMode::AccretionMeshParticles) {
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "Particles Update");
 
 			// Set descriptor heaps for particle update

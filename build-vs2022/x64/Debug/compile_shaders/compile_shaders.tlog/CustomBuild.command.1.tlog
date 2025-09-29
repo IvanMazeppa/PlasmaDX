@@ -28,6 +28,36 @@ endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd
+^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\16D526FE7583C4A1AF334FF261FB2DB3\PARTICLE_MESH.DXIL.RULE
+setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ms_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\16D526FE7583C4A1AF334FF261FB2DB3\PARTICLE_PHYSICS.DXIL.RULE
+setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\16D526FE7583C4A1AF334FF261FB2DB3\PARTICLE_PIXEL.DXIL.RULE
+setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ps_6_0 -E PSMain -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_pixel.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
 ^D:\USERS\DILLI\ANDROIDSTUDIOPROJECTS\PLASMADX\BUILD-VS2022\CMAKEFILES\8029F2AAB6BA55D773B213D32F131D8A\RAYMARCH.DXIL.RULE
 setlocal
 D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/raymarch.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/raymarch.hlsl

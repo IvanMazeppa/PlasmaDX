@@ -10,6 +10,15 @@
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\e2f4cf078fb045011d9fb24e74f55816\raytracing_lib.dxil.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\16d526fe7583c4a1af334ff261fb2db3\particle_mesh.dxil.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\16d526fe7583c4a1af334ff261fb2db3\particle_physics.dxil.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\16d526fe7583c4a1af334ff261fb2db3\particle_pixel.dxil.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\8029f2aab6ba55d773b213d32f131d8a\raymarch.dxil.rule">
       <Filter>CMake Rules</Filter>
     </CustomBuild>

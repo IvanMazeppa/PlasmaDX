@@ -302,6 +302,25 @@ void RayGen() {
         // SPH fluid simulation visualized through metaball density fields
         ExecuteMetaballSPH(payload, rayOrigin, rayDir, index, g_time);
 
+    } else if (demoMode == 8) {
+        // === DXR12 TEST: Clean DXR 1.2 foundation with simple animation ===
+        // Time-based color cycling and geometric pattern for stable foundation testing
+        float3 color = float3(
+            0.5 + 0.5 * sin(g_time + uv.x * 3.14159),
+            0.5 + 0.5 * sin(g_time * 1.3 + uv.y * 3.14159),
+            0.5 + 0.5 * sin(g_time * 0.7 + (uv.x + uv.y) * 3.14159)
+        );
+
+        // Add pulsing center circle for visual focal point
+        float2 center = uv - 0.5;
+        float radius = length(center);
+        float pulse = 0.8 + 0.3 * sin(g_time * 2.0);
+        if (radius < 0.1 * pulse) {
+            color = lerp(color, float3(1.0, 1.0, 1.0), 0.5);
+        }
+
+        payload.color = float4(color, 1.0);
+
     } else {
         // Fallback: Simple test pattern
         payload.color = float4(uv.x, uv.y, 0.5, 1.0);

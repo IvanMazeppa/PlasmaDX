@@ -273,6 +273,174 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\16d526fe7583c4a1af334ff261fb2db3\particle_mesh.dxil.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compiling particle mesh shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ms_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compiling particle mesh shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ms_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Compiling particle mesh shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ms_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Compiling particle mesh shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ms_6_5 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\16d526fe7583c4a1af334ff261fb2db3\particle_physics.dxil.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compiling particle physics compute shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compiling particle physics compute shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Compiling particle physics compute shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Compiling particle physics compute shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T cs_6_0 -E main -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_physics.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\16d526fe7583c4a1af334ff261fb2db3\particle_pixel.dxil.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compiling particle pixel shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ps_6_0 -E PSMain -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_pixel.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compiling particle pixel shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ps_6_0 -E PSMain -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_pixel.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Compiling particle pixel shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ps_6_0 -E PSMain -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_pixel.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Compiling particle pixel shader</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+D:\Users\dilli\AndroidStudioProjects\PlasmaDX\tools\dxc.exe -T ps_6_0 -E PSMain -Fo D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_pixel.dxil D:/Users/dilli/AndroidStudioProjects/PlasmaDX/shaders/particles/particle_mesh.hlsl
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.hlsl;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
     <CustomBuild Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\8029f2aab6ba55d773b213d32f131d8a\raymarch.dxil.rule">
       <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compiling ray marching compute shader</Message>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
@@ -730,7 +898,7 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil;%(AdditionalInputs)</AdditionalInputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\compile_shaders</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</VerifyInputsAndOutputsExist>
@@ -742,7 +910,7 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil;%(AdditionalInputs)</AdditionalInputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\compile_shaders</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</VerifyInputsAndOutputsExist>
@@ -754,7 +922,7 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil;%(AdditionalInputs)</AdditionalInputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\compile_shaders</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</VerifyInputsAndOutputsExist>
@@ -766,7 +934,7 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\dxr\raytracing_lib.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_update.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\particles_debug_pattern.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\density_slice.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_fill_sphere.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\density_advect_curl.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\metaball_density_fill.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\raymarch.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\ray_march_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\vol\temporal_accumulation_cs.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_physics.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_mesh.dxil;D:\Users\dilli\AndroidStudioProjects\PlasmaDX\shaders\particles\particle_pixel.dxil;%(AdditionalInputs)</AdditionalInputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Users\dilli\AndroidStudioProjects\PlasmaDX\build-vs2022\CMakeFiles\compile_shaders</Outputs>
       <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
       <VerifyInputsAndOutputsExist Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</VerifyInputsAndOutputsExist>

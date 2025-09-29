@@ -46,6 +46,7 @@ class Particles;
 class DensityVolume;
 class RayMarcher;
 class MetaballSystem;
+class ParticleSystem;
 
 // DXR 1.2 and SER feature flags structure
 struct DXRFeatures {
@@ -106,6 +107,7 @@ private:
 	bool createDevice();
 	bool createSwapchain();
 	bool createRTVs();
+	bool testRTVCreation();
 	bool createCommandObjects();
 	void attachDebugConsole();
 	void renderFrame();
@@ -177,6 +179,7 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_hdrTexture;
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
+	UINT m_hdrRtvIndex = UINT_MAX;  // RTV for mesh shader rendering
 
 	// DXR SRV descriptors for descriptor table binding
 	UINT m_tlasSrvIndex = UINT_MAX;     // TLAS SRV for descriptor table (t0)
@@ -209,7 +212,9 @@ private:
         VolumetricSculpture = 4, // Static complex volumetric shape with sweeping RT lighting
         PlasmaAccretion = 5,     // Orbital plasma accretion disk with volumetric self-shadowing
         VoxelParticles = 6,      // Voxel-based particle simulation (debug/development)
-        MetaballSPH = 7          // SPH metaball physics with density field rendering
+        MetaballSPH = 7,         // SPH metaball physics with density field rendering
+        DXR12Test = 8,          // DXR 1.2 feature testing (SER, OMM, clean pipeline validation)
+        AccretionMeshParticles = 9 // NASA-quality accretion disk with mesh shader rendering (100K particles)
     };
     DemoMode m_demoMode = DemoMode::SphereRT;
 
@@ -248,6 +253,9 @@ private:
 	// Metaballs (lava lamp)
 	std::unique_ptr<MetaballSystem> m_metaballSystem;
 
+	// Mesh particle system for accretion disk (Mode 9)
+	std::unique_ptr<ParticleSystem> m_particleSystem;
+
 	// Voxel particle system (Mode 6)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelDensityTexture;     // 3D texture for particle density
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelVelocityTexture;    // 3D texture for velocity field
@@ -270,6 +278,7 @@ private:
 	bool m_quitOnRemoval = true;
 
 	// DXR methods
+	bool initializeDXRCore();
 	bool initializeDXR();
 	void createDXRPipeline();
 	void buildAccelerationStructures();

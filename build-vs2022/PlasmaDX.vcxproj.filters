@@ -49,6 +49,15 @@
     <ClCompile Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\MetaballSystem.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\ProceduralPlasma.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\GPUMetaballSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\particles\ParticleSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\core\App.h">
@@ -94,6 +103,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\MetaballSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\ProceduralPlasma.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\volumetric\GPUMetaballSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Users\dilli\AndroidStudioProjects\PlasmaDX\src\particles\ParticleSystem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
