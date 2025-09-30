@@ -29,8 +29,8 @@ ConstantBuffer<RenderConstants> renderConstants : register(b0);
 
 // Temperature to color mapping (NASA-style plasma visualization)
 float3 TemperatureToColor(float temperature) {
-    // Normalize temperature to 0-1 range (500K to 6000K)
-    float t = saturate((temperature - 500.0) / 5500.0);
+    // Normalize temperature to 0-1 range (800K to 26000K for wider spectrum)
+    float t = saturate((temperature - 800.0) / 25200.0);
 
     // NASA-style color mapping: blue (cold) -> cyan -> yellow -> orange -> red (hot)
     float3 color;
@@ -140,18 +140,32 @@ void main(
 
 // Pixel shader for particle rendering
 float4 PSMain(VertexOutput input) : SV_Target {
-    // Create circular particle shape using texture coordinates
+    // Create spherical particle shape using texture coordinates
     float2 center = input.texCoord - 0.5;
-    float distance = length(center);
+    float distFromCenter = length(center) * 2.0; // Scale to 0-1 range
 
-    // Smooth circular falloff
-    float alpha = 1.0 - smoothstep(0.3, 0.5, distance);
-    alpha *= input.alpha;
+    // Discard pixels outside circle for hard edge
+    if (distFromCenter > 1.0) discard;
 
-    // Apply temperature-based color with glow effect
+    // Simulate 3D sphere lighting with sqrt falloff (like a real sphere)
+    float sphereZ = sqrt(max(0.0, 1.0 - distFromCenter * distFromCenter));
+
+    // Smooth edge fadeout
+    float edgeFade = 1.0 - smoothstep(0.8, 1.0, distFromCenter);
+
+    // Combine sphere lighting with edge fade
+    float intensity = sphereZ * edgeFade;
+    float alpha = intensity * input.alpha;
+
+    // Apply temperature-based color with 3D sphere lighting
     float3 color = input.color;
-    float glow = 1.0 - distance * 2.0;
-    color *= (0.8 + glow * 0.4);
+
+    // Add bright center (hot core)
+    float hotSpot = pow(1.0 - distFromCenter, 3.0);
+    color = lerp(color, color * 1.5, hotSpot * 0.5);
+
+    // Apply sphere shading
+    color *= (0.6 + intensity * 0.8);
 
     return float4(color, alpha);
 }

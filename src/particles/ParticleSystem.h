@@ -87,8 +87,8 @@ private:
 
     // NASA-quality accretion disk parameters
     static constexpr float BLACK_HOLE_MASS = 4.15e6f; // Sagittarius A* mass in solar masses
-    static constexpr float GRAVITY_CONSTANT = 6.67430e-11f;
+    static constexpr float GRAVITY_CONSTANT = 500.0f; // Scaled for visible motion (not SI units)
     static constexpr float INNER_STABLE_ORBIT = 6.0f; // Schwarzschild radii
-    static constexpr float OUTER_DISK_RADIUS = 100.0f;
-    static constexpr float DISK_THICKNESS = 0.1f;
+    static constexpr float OUTER_DISK_RADIUS = 200.0f; // MUCH larger for spacing
+    static constexpr float DISK_THICKNESS = 80.0f; // HUGE thickness for cloud-like volume
 };

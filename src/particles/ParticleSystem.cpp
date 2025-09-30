@@ -80,16 +80,17 @@ bool ParticleSystem::CreateBuffers() {
         return false;
     }
 
-    // Create constants buffer for physics
+    // Create constants buffer for physics (use UPLOAD heap for CPU writes)
+    CD3DX12_HEAP_PROPERTIES uploadHeapProps2(D3D12_HEAP_TYPE_UPLOAD);
     CD3DX12_RESOURCE_DESC constantsDesc = CD3DX12_RESOURCE_DESC::Buffer(
         (sizeof(ParticleConstants) + 255) & ~255 // Align to 256 bytes
     );
 
     hr = m_device->CreateCommittedResource(
-        &heapProps,
+        &uploadHeapProps2,
         D3D12_HEAP_FLAG_NONE,
         &constantsDesc,
-        D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
         IID_PPV_ARGS(&m_particleConstantsBuffer)
     );
@@ -247,11 +248,11 @@ bool ParticleSystem::CreateMeshPipeline() {
     blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     pipelineStateStream.blendDesc = blendDesc;
 
-    // Depth stencil state
+    // Depth stencil state (disabled since we don't have a depth buffer)
     CD3DX12_DEPTH_STENCIL_DESC depthStencilDesc(D3D12_DEFAULT);
-    depthStencilDesc.DepthEnable = TRUE;
-    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // Don't write depth for transparent particles
-    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    depthStencilDesc.DepthEnable = FALSE; // No depth buffer for Mode 9
+    depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     pipelineStateStream.depthStencil = depthStencilDesc;
 
     // Rasterizer state
@@ -260,10 +261,10 @@ bool ParticleSystem::CreateMeshPipeline() {
     rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE; // No culling for billboards
     pipelineStateStream.rasterizer = rasterizerDesc;
 
-    // Render target formats
+    // Render target formats (must match backbuffer format)
     D3D12_RT_FORMAT_ARRAY renderTargetFormats = {};
     renderTargetFormats.NumRenderTargets = 1;
-    renderTargetFormats.RTFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT; // HDR format
+    renderTargetFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // Match swapchain backbuffer format
     pipelineStateStream.renderTargetFormats = renderTargetFormats;
 
     // Sample description
@@ -296,12 +297,13 @@ void ParticleSystem::InitializeAccretionDisk() {
 }
 
 void ParticleSystem::UpdatePhysics(ID3D12GraphicsCommandList* cmdList, float deltaTime) {
-    m_totalTime += deltaTime;
-
-    // Update constants
+    // Update constants (use current totalTime BEFORE incrementing for first-frame initialization)
     ParticleConstants constants = {};
     constants.deltaTime = deltaTime;
-    constants.totalTime = m_totalTime;
+    constants.totalTime = m_totalTime;  // First frame this is 0.0, which triggers initialization
+
+    // Increment time for next frame
+    m_totalTime += deltaTime;
     constants.blackHoleMass = BLACK_HOLE_MASS;
     constants.gravityStrength = GRAVITY_CONSTANT;
     constants.blackHolePosition = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
@@ -313,8 +315,18 @@ void ParticleSystem::UpdatePhysics(ID3D12GraphicsCommandList* cmdList, float del
     constants.temperatureScale = 1.0f;
     constants.particleCount = static_cast<float>(m_particleCount);
 
-    // Upload constants (simplified - in real implementation would use upload heap)
-    // For now, just dispatch the compute shader
+    // Upload constants to GPU via mapped memory
+    void* mappedData;
+    HRESULT hr = m_particleConstantsBuffer->Map(0, nullptr, &mappedData);
+    if (SUCCEEDED(hr)) {
+        memcpy(mappedData, &constants, sizeof(ParticleConstants));
+        m_particleConstantsBuffer->Unmap(0, nullptr);
+    } else {
+        LOGE("Failed to map particle constants buffer");
+        return;
+    }
+
+    // Dispatch compute shader
     cmdList->SetComputeRootSignature(m_computeRootSig.Get());
     cmdList->SetPipelineState(m_computePSO.Get());
     cmdList->SetComputeRootUnorderedAccessView(0, m_particleBuffer->GetGPUVirtualAddress());
@@ -323,6 +335,14 @@ void ParticleSystem::UpdatePhysics(ID3D12GraphicsCommandList* cmdList, float del
     // Dispatch with one thread per particle
     UINT groupCount = (m_particleCount + 63) / 64; // 64 threads per group
     cmdList->Dispatch(groupCount, 1, 1);
+
+    static int s_dispatchCount = 0;
+    if (s_dispatchCount < 5) {
+        LOGI("Compute shader dispatch #" + std::to_string(s_dispatchCount) +
+             " (totalTime=" + std::to_string(constants.totalTime) +
+             " [before increment], m_totalTime=" + std::to_string(m_totalTime) + " [after increment])");
+        s_dispatchCount++;
+    }
 
     // Barrier to ensure compute finishes before mesh shader reads
     CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::UAV(m_particleBuffer.Get());
@@ -334,6 +354,12 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
                                    const DirectX::XMMATRIX& projMatrix,
                                    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
                                    UINT width, UINT height) {
+    static bool s_firstCall = true;
+    if (s_firstCall) {
+        LOGI("ParticleSystem::RenderParticles called - starting mesh shader rendering");
+        s_firstCall = false;
+    }
+
     // Query for ID3D12GraphicsCommandList6 for DispatchMesh support
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList6> cmdList6;
     HRESULT hr = cmdList->QueryInterface(IID_PPV_ARGS(&cmdList6));
@@ -367,8 +393,16 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     RenderConstants renderConstants = {};
     renderConstants.viewMatrix = viewMatrix;
     renderConstants.projMatrix = projMatrix;
-    renderConstants.cameraPos = DirectX::XMFLOAT3(0.0f, 0.0f, -5.0f); // Would get from camera
-    renderConstants.particleSize = 0.1f;
+
+    // Extract camera position from view matrix (inverse of view)
+    DirectX::XMMATRIX viewMat = viewMatrix;
+    DirectX::XMVECTOR det;
+    DirectX::XMMATRIX invView = DirectX::XMMatrixInverse(&det, viewMat);
+    DirectX::XMFLOAT3 camPos;
+    DirectX::XMStoreFloat3(&camPos, invView.r[3]);
+    renderConstants.cameraPos = camPos;
+
+    renderConstants.particleSize = 5.0f; // HUGE particles to see spreading clearly
     renderConstants.temperatureScale = 1.0f;
 
     // Upload render constants to GPU
@@ -392,4 +426,10 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     // Each workgroup handles 32 particles, creating 4 vertices and 2 triangles per particle
     UINT workgroupCount = (m_particleCount + 31) / 32;
     cmdList6->DispatchMesh(workgroupCount, 1, 1);
+
+    static int s_callCount = 0;
+    if (s_callCount < 3) {
+        LOGI("DispatchMesh called with " + std::to_string(workgroupCount) + " workgroups for " + std::to_string(m_particleCount) + " particles");
+        s_callCount++;
+    }
 }

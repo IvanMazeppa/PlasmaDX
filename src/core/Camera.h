@@ -66,9 +66,9 @@ private:
     void UpdateMatrices();
 
     // Camera parameters
-    DirectX::XMFLOAT3 m_position = { 0.0f, 2.0f, -5.0f };
+    DirectX::XMFLOAT3 m_position = { 0.0f, 20.0f, -180.0f }; // View particle cloud from front
     float m_yaw = 0.0f;
-    float m_pitch = 0.0f;
+    float m_pitch = 0.0f; // Look straight ahead at cloud center
     float m_fov = 45.0f;
     float m_aspectRatio = 16.0f / 9.0f;
     float m_nearPlane = 0.1f;

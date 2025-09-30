@@ -1967,6 +1967,15 @@ void App::renderFrameDXR() {
 			static bool s_firstFrame = true;
 			if (s_firstFrame) {
 				LOGI("MODE 9: Starting mesh particle render loop");
+
+				// Position camera to view accretion disk from above and behind
+				// Disk is in XZ plane (Y=0), radius 6-100 units
+				// Place camera at (0, 80, -120) looking toward origin
+				if (m_camera) {
+					// We need to manually set camera position/rotation
+					// For now, just log that we're using default camera
+					LOGI("MODE 9: Camera viewing accretion disk from elevated position");
+				}
 				s_firstFrame = false;
 			}
 

@@ -41,13 +41,21 @@ void main(uint3 id : SV_DispatchThreadID) {
 
     // Initialize particles if this is the first frame
     if (constants.totalTime < 0.01) {
-        // Initialize accretion disk particles
-        float angle = float(particleIndex) / constants.particleCount * 6.28318530718; // 2*PI
+        // Initialize accretion disk particles with randomization
+        uint seed = particleIndex * 1103515245u + 12345u;
+        uint seed2 = seed * 1664525u + 1013904223u;
+        uint seed3 = seed2 * 22695477u + 1;
+
+        // Fully randomize angle (break up rings completely)
+        float angleRand = float((seed2 >> 16) & 0x7fff) / 32767.0;
+        float angle = angleRand * 6.28318530718; // Random angle 0 to 2π
+
+        // Randomize radius with more variation
+        float radiusRand = float((seed3 >> 16) & 0x7fff) / 32767.0;
         float radius = lerp(constants.innerRadius, constants.outerRadius,
-                           pow(float(particleIndex) / constants.particleCount, 0.8));
+                            pow(radiusRand, 0.7)); // Power distribution for more inner particles
 
         // Random vertical offset for disk thickness
-        uint seed = particleIndex * 1103515245u + 12345u;
         float randZ = (float((seed >> 16) & 0x7fff) / 32767.0 - 0.5) * constants.diskThickness;
 
         p.position = float3(
@@ -56,62 +64,90 @@ void main(uint3 id : SV_DispatchThreadID) {
             sin(angle) * radius
         );
 
-        // Keplerian orbital velocity with relativistic correction
+        // COMPLETELY RANDOM velocity - no orbital mechanics at all
+        uint seed4 = seed3 * 2654435761u;
+        uint seed5 = seed4 * 48271u;
+        uint seed6 = seed5 * 1103515245u;
+
+        float3 randomVel = float3(
+            (float((seed4 >> 16) & 0x7fff) / 32767.0 - 0.5),
+            (float((seed5 >> 16) & 0x7fff) / 32767.0 - 0.5),
+            (float((seed6 >> 16) & 0x7fff) / 32767.0 - 0.5)
+        );
+        p.velocity = randomVel * 15.0; // HUGE random velocities in all directions
+
+        // Calculate distance for temperature
         float distance = length(p.position - constants.blackHolePosition);
-        float keplerianSpeed = sqrt(constants.gravityStrength * constants.blackHoleMass / (distance + 0.5));
 
-        // Orbital direction (perpendicular to radial direction)
-        float3 radial = normalize(p.position - constants.blackHolePosition);
-        float3 orbital = normalize(cross(constants.diskAxis, radial));
-        p.velocity = orbital * keplerianSpeed * 0.3; // Scale for visualization
-
-        // Temperature based on distance (hotter closer to black hole)
-        p.temperature = 1000.0 + 5000.0 / (distance + 1.0);
+        // Temperature based on distance (MUCH hotter near black hole for color variation)
+        // Inner particles: ~10,000K (red/orange), Outer particles: ~800K (blue)
+        p.temperature = 800.0 + 25000.0 / (distance + 1.0);
         p.density = 1.0;
     } else {
         // Physics update for existing particles
         float3 position = p.position;
         float3 velocity = p.velocity;
 
-        // Gravitational force toward black hole
-        float3 toBlackHole = constants.blackHolePosition - position;
-        float distance = length(toBlackHole);
-        float3 direction = toBlackHole / distance;
+        // CURL NOISE TURBULENCE - Creates vortices to break up ribbon formations
+        float turbulenceStrength = 8.0; // VERY strong turbulence for dramatic spreading
+        float3 curlPos = position * 0.08 + float3(constants.totalTime * 0.03, 0, 0);
+        float epsilon = 0.05;
 
-        // Newtonian gravity with relativistic correction near event horizon
-        float gravity = constants.gravityStrength * constants.blackHoleMass / (distance * distance);
-        float relativistic = 1.0 - (SCHWARZSCHILD_RADIUS / (distance * 1e6 + SCHWARZSCHILD_RADIUS));
-        gravity *= relativistic;
+        // Sample potential field at 6 points for curl calculation
+        float px1 = sin(curlPos.x + epsilon) * cos(curlPos.y * 1.7) * sin(curlPos.z * 2.3);
+        float px2 = sin(curlPos.x - epsilon) * cos(curlPos.y * 1.7) * sin(curlPos.z * 2.3);
+        float py1 = sin(curlPos.x) * cos((curlPos.y + epsilon) * 1.7) * sin(curlPos.z * 2.3);
+        float py2 = sin(curlPos.x) * cos((curlPos.y - epsilon) * 1.7) * sin(curlPos.z * 2.3);
+        float pz1 = sin(curlPos.x) * cos(curlPos.y * 1.7) * sin((curlPos.z + epsilon) * 2.3);
+        float pz2 = sin(curlPos.x) * cos(curlPos.y * 1.7) * sin((curlPos.z - epsilon) * 2.3);
 
-        float3 gravityForce = direction * gravity;
+        // Calculate curl (rotating flow field)
+        float3 curl;
+        curl.x = (pz1 - pz2) / (2.0 * epsilon) - (py1 - py2) / (2.0 * epsilon);
+        curl.y = (px1 - px2) / (2.0 * epsilon) - (pz1 - pz2) / (2.0 * epsilon);
+        curl.z = (py1 - py2) / (2.0 * epsilon) - (px1 - px2) / (2.0 * epsilon);
 
-        // Viscous forces (simplified Shakura-Sunyaev disk model)
-        float3 viscousForce = -velocity * constants.viscosity;
+        // Add smaller scale eddies for detail
+        float3 curlPos2 = position * 0.25 + float3(constants.totalTime * 0.08, 0, 0);
+        curl += float3(
+            sin(curlPos2.y * 5.1) * cos(curlPos2.z * 4.3),
+            sin(curlPos2.z * 5.1) * cos(curlPos2.x * 4.3),
+            sin(curlPos2.x * 5.1) * cos(curlPos2.y * 4.3)
+        ) * 0.2;
 
-        // Update velocity and position using Verlet integration
-        velocity += (gravityForce + viscousForce) * constants.deltaTime;
+        // Apply turbulence to velocity
+        velocity += curl * turbulenceStrength * constants.deltaTime;
+
+        // Add per-particle random noise that varies over time (breaks coherent motion)
+        float randomPhase = float(particleIndex) * 0.1 + constants.totalTime * 0.5;
+        float3 randomNoise = float3(
+            sin(randomPhase * 1.7),
+            sin(randomPhase * 2.3),
+            sin(randomPhase * 3.1)
+        ) * 3.0; // Strong random jitter
+        velocity += randomNoise * constants.deltaTime;
+
+        // Update position based on velocity
         position += velocity * constants.deltaTime;
 
-        // Update temperature based on viscous heating and radiative cooling
-        float viscousHeating = dot(viscousForce, velocity) * constants.temperatureScale;
-        float radiativeCooling = p.temperature * p.temperature * p.temperature * p.temperature * 1e-10;
-        p.temperature += (viscousHeating - radiativeCooling) * constants.deltaTime;
-        p.temperature = max(p.temperature, 500.0); // Minimum temperature
+        // Apply MINIMAL damping to preserve turbulent motion
+        float dampingFactor = 0.99; // Very light damping (1% energy loss per frame)
+        velocity *= dampingFactor;
 
-        // Keep particles within disk bounds
-        if (distance > constants.outerRadius * 1.5) {
-            // Reset particle to inner disk
-            float angle = constants.totalTime + float(particleIndex) * 0.1;
-            position = float3(
-                cos(angle) * constants.innerRadius * 1.1,
-                position.y * 0.5, // Preserve some vertical motion
-                sin(angle) * constants.innerRadius * 1.1
-            );
+        // DON'T force particles into perfect orbits - let turbulence dominate
+        // (Removed orbital speed boost to allow cloud-like behavior)
 
-            float keplerianSpeed = sqrt(constants.gravityStrength * constants.blackHoleMass / constants.innerRadius);
-            float3 radial = normalize(position - constants.blackHolePosition);
-            float3 orbital = normalize(cross(constants.diskAxis, radial));
-            velocity = orbital * keplerianSpeed * 0.3;
+        // Calculate distance for temperature and bounds check
+        float distance = length(position - constants.blackHolePosition);
+
+        // Keep temperature based on distance
+        p.temperature = 800.0 + 25000.0 / (distance + 1.0);
+
+        // Keep particles within a large sphere (soft boundary, don't force orbits)
+        if (distance > constants.outerRadius * 2.0) {
+            // Gently push back toward center without forcing orbit
+            float3 pushBack = -normalize(position) * 2.0;
+            velocity += pushBack * constants.deltaTime;
         }
 
         p.position = position;
