@@ -1,4 +1,0 @@
-D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022/CMakeFiles/PlasmaDX.dir
-D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022/CMakeFiles/compile_shaders.dir
-D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022/CMakeFiles/ALL_BUILD.dir
-D:/Users/dilli/AndroidStudioProjects/PlasmaDX/build-vs2022/CMakeFiles/ZERO_CHECK.dir
