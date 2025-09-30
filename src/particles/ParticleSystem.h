@@ -4,6 +4,7 @@
 #include <wrl.h>
 #include <DirectXMath.h>
 #include <memory>
+#include <algorithm>
 
 class ParticleSystem {
 public:
@@ -22,12 +23,17 @@ public:
         float blackHoleMass;
         float gravityStrength;
         DirectX::XMFLOAT3 blackHolePosition;
-        float viscosity;
+        float turbulenceStrength;
         DirectX::XMFLOAT3 diskAxis;
+        float dampingFactor;
         float innerRadius;
         float outerRadius;
         float diskThickness;
-        float temperatureScale;
+        float viscosity;
+        float angularMomentumBoost;
+        uint32_t constraintShape;  // 0=NONE, 1=SPHERE, 2=DISC, 3=TORUS, 4=ACCRETION_DISK
+        float constraintRadius;
+        float constraintThickness;
         float particleCount;
     };
 
@@ -38,7 +44,9 @@ public:
         DirectX::XMFLOAT3 cameraPos;
         float particleSize;
         float temperatureScale;
-        float padding[3];
+        float colorTempOffset;  // Runtime color adjustment
+        float colorTempScale;   // Runtime color scaling
+        float padding;
     };
 
     ParticleSystem();
@@ -51,8 +59,21 @@ public:
     void RenderParticles(ID3D12GraphicsCommandList* cmdList,
                         const DirectX::XMMATRIX& viewMatrix,
                         const DirectX::XMMATRIX& projMatrix,
+                        const DirectX::XMFLOAT3& cameraPos,
                         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
                         UINT width, UINT height);
+
+    // Runtime adjustable parameters
+    void AdjustGravity(float delta) { m_gravityStrength += delta; }
+    void AdjustTurbulence(float delta) { m_turbulenceStrength += delta; }
+    void AdjustDamping(float delta) { m_dampingFactor = std::clamp(m_dampingFactor + delta, 0.9f, 1.0f); }
+    void AdjustAngularMomentum(float delta) { m_angularMomentumBoost += delta; }
+    void AdjustViscosity(float delta) { m_viscosity += delta; }
+    void AdjustParticleSize(float delta) { m_particleSize = std::max(0.5f, m_particleSize + delta); }
+    void AdjustColorTempOffset(float delta) { m_colorTempOffset += delta; }
+    void AdjustColorTempScale(float delta) { m_colorTempScale = std::max(0.1f, m_colorTempScale + delta); }
+    void ResetParticles() { m_totalTime = 0.0f; }
+    void CycleConstraintShape() { m_constraintShape = (m_constraintShape + 1) % 5; }  // Cycle through 0-4
 
 private:
     bool CreateBuffers();
@@ -85,10 +106,24 @@ private:
     uint32_t m_particleCount;
     float m_totalTime;
 
+    // Runtime adjustable physics parameters
+    float m_gravityStrength = 500.0f;
+    float m_turbulenceStrength = 15.0f;
+    float m_dampingFactor = 0.99f;
+    float m_angularMomentumBoost = 1.0f;
+    float m_viscosity = 0.01f;
+    uint32_t m_constraintShape = 0;  // 0=NONE, 1=SPHERE, 2=DISC, 3=TORUS, 4=ACCRETION_DISK
+    float m_constraintRadius = 50.0f;
+    float m_constraintThickness = 5.0f;
+
+    // Render parameters
+    float m_particleSize = 5.0f;
+    float m_colorTempOffset = 0.0f;
+    float m_colorTempScale = 1.0f;
+
     // NASA-quality accretion disk parameters
     static constexpr float BLACK_HOLE_MASS = 4.15e6f; // Sagittarius A* mass in solar masses
-    static constexpr float GRAVITY_CONSTANT = 500.0f; // Scaled for visible motion (not SI units)
     static constexpr float INNER_STABLE_ORBIT = 6.0f; // Schwarzschild radii
-    static constexpr float OUTER_DISK_RADIUS = 200.0f; // MUCH larger for spacing
-    static constexpr float DISK_THICKNESS = 80.0f; // HUGE thickness for cloud-like volume
+    static constexpr float OUTER_DISK_RADIUS = 60.0f; // Smaller radius to concentrate particles in hot zone
+    static constexpr float DISK_THICKNESS = 40.0f; // Thinner for more concentration
 };

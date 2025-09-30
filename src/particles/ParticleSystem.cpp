@@ -305,14 +305,19 @@ void ParticleSystem::UpdatePhysics(ID3D12GraphicsCommandList* cmdList, float del
     // Increment time for next frame
     m_totalTime += deltaTime;
     constants.blackHoleMass = BLACK_HOLE_MASS;
-    constants.gravityStrength = GRAVITY_CONSTANT;
+    constants.gravityStrength = m_gravityStrength;
     constants.blackHolePosition = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-    constants.viscosity = 0.01f;
+    constants.turbulenceStrength = m_turbulenceStrength;
     constants.diskAxis = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
+    constants.dampingFactor = m_dampingFactor;
     constants.innerRadius = INNER_STABLE_ORBIT;
     constants.outerRadius = OUTER_DISK_RADIUS;
     constants.diskThickness = DISK_THICKNESS;
-    constants.temperatureScale = 1.0f;
+    constants.viscosity = m_viscosity;
+    constants.angularMomentumBoost = m_angularMomentumBoost;
+    constants.constraintShape = m_constraintShape;
+    constants.constraintRadius = m_constraintRadius;
+    constants.constraintThickness = m_constraintThickness;
     constants.particleCount = static_cast<float>(m_particleCount);
 
     // Upload constants to GPU via mapped memory
@@ -352,11 +357,15 @@ void ParticleSystem::UpdatePhysics(ID3D12GraphicsCommandList* cmdList, float del
 void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
                                    const DirectX::XMMATRIX& viewMatrix,
                                    const DirectX::XMMATRIX& projMatrix,
+                                   const DirectX::XMFLOAT3& cameraPos,
                                    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
                                    UINT width, UINT height) {
     static bool s_firstCall = true;
     if (s_firstCall) {
         LOGI("ParticleSystem::RenderParticles called - starting mesh shader rendering");
+        LOGI("Camera position: x=" + std::to_string(cameraPos.x) +
+             " y=" + std::to_string(cameraPos.y) +
+             " z=" + std::to_string(cameraPos.z));
         s_firstCall = false;
     }
 
@@ -393,17 +402,12 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     RenderConstants renderConstants = {};
     renderConstants.viewMatrix = viewMatrix;
     renderConstants.projMatrix = projMatrix;
+    renderConstants.cameraPos = cameraPos; // Use passed camera position directly
 
-    // Extract camera position from view matrix (inverse of view)
-    DirectX::XMMATRIX viewMat = viewMatrix;
-    DirectX::XMVECTOR det;
-    DirectX::XMMATRIX invView = DirectX::XMMatrixInverse(&det, viewMat);
-    DirectX::XMFLOAT3 camPos;
-    DirectX::XMStoreFloat3(&camPos, invView.r[3]);
-    renderConstants.cameraPos = camPos;
-
-    renderConstants.particleSize = 5.0f; // HUGE particles to see spreading clearly
+    renderConstants.particleSize = m_particleSize;
     renderConstants.temperatureScale = 1.0f;
+    renderConstants.colorTempOffset = m_colorTempOffset;
+    renderConstants.colorTempScale = m_colorTempScale;
 
     // Upload render constants to GPU
     void* mappedData;

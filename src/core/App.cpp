@@ -102,8 +102,13 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 
-		case 'C':  // Cycle light colors (torchlight demo mode) OR ray marcher colors
-			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+		case 'C':  // Mode 9: Cycle constraints OR Torchlight: colors OR Raymarcher: colors
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				// Mode 9: Cycle constraint shape
+				g_appInstance->m_meshParticleSystem->CycleConstraintShape();
+				LOGI("Constraint shape cycled");
+			}
+			else if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 				// Torchlight demo mode: cycle colors for torchlight
 				g_appInstance->m_lightColorIndex = (g_appInstance->m_lightColorIndex + 1) % 5;
 				const char* colors[] = {"Warm torch", "Cool blue", "Red", "Green", "Purple"};
@@ -125,20 +130,32 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Color mode " + std::to_string(colorMode) + " selected");
 			}
 			break;
-		case 'B':  // Toggle DXR additive blend over compute HDR
-			if (g_appInstance) {
+		case 'B':  // Mode 9: Increase angular momentum OR Toggle DXR blend
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustAngularMomentum(0.1f);
+				LOGI("Angular momentum increased");
+			}
+			else if (g_appInstance) {
 				g_appInstance->m_dxrBlend = !g_appInstance->m_dxrBlend;
 				LOGI(g_appInstance->m_dxrBlend ? "DXR blend ENABLED (additive)" : "DXR blend DISABLED");
 			}
 			break;
-		case 'N':  // Adjust DXR blend scale down
-			if (g_appInstance) {
+		case 'N':  // Mode 9: Decrease particle size OR DXR blend scale down
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustParticleSize(-0.5f);
+				LOGI("Particle size decreased");
+			}
+			else if (g_appInstance) {
 				g_appInstance->m_dxrBlendScale = std::max(0.1f, g_appInstance->m_dxrBlendScale - 0.1f);
 				LOGI("DXR blend scale: " + std::to_string(g_appInstance->m_dxrBlendScale));
 			}
 			break;
-		case 'M':  // Adjust DXR blend scale up
-			if (g_appInstance) {
+		case 'M':  // Mode 9: Increase particle size OR DXR blend scale up
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustParticleSize(0.5f);
+				LOGI("Particle size increased");
+			}
+			else if (g_appInstance) {
 				g_appInstance->m_dxrBlendScale = std::min(2.0f, g_appInstance->m_dxrBlendScale + 0.1f);
 				LOGI("DXR blend scale: " + std::to_string(g_appInstance->m_dxrBlendScale));
 			}
@@ -204,7 +221,21 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		// Camera movement controls (WASD + QE)
 		case 'W': case 'A': case 'S': case 'D': case 'Q': case 'E':
 			if (g_appInstance && g_appInstance->m_camera) {
-				g_appInstance->m_camera->SetKeyState((char)wParam, true);
+				// Check if Ctrl is pressed for rotation mode
+				bool ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+				if (ctrlPressed) {
+					// Ctrl+WASD: Camera rotation
+					constexpr float ROTATE_SPEED = 0.05f;
+					switch (wParam) {
+						case 'A': g_appInstance->m_camera->RotateYaw(-ROTATE_SPEED); break;   // Turn left
+						case 'D': g_appInstance->m_camera->RotateYaw(ROTATE_SPEED); break;    // Turn right
+						case 'W': g_appInstance->m_camera->RotatePitch(ROTATE_SPEED); break;  // Tilt up
+						case 'S': g_appInstance->m_camera->RotatePitch(-ROTATE_SPEED); break; // Tilt down
+					}
+				} else {
+					// Normal WASD: Camera movement
+					g_appInstance->m_camera->SetKeyState((char)wParam, true);
+				}
 			}
 			break;
 
@@ -233,14 +264,22 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
 			}
 			break;
-		case VK_OEM_4: // [ key - Decrease gravity strength
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_OEM_4: // [ key - Mode 9: Decrease color scale OR Mode 5: Decrease gravity
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustColorTempScale(-0.1f);
+				LOGI("Color temperature scale decreased");
+			}
+			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaGravityExp = std::max(0.5f, g_appInstance->m_plasmaGravityExp - 0.1f);
 				LOGI("Plasma Gravity Exponent: " + std::to_string(g_appInstance->m_plasmaGravityExp));
 			}
 			break;
-		case VK_OEM_6: // ] key - Increase gravity strength
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_OEM_6: // ] key - Mode 9: Increase color scale OR Mode 5: Increase gravity
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustColorTempScale(0.1f);
+				LOGI("Color temperature scale increased");
+			}
+			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaGravityExp = std::min(2.5f, g_appInstance->m_plasmaGravityExp + 0.1f);
 				LOGI("Plasma Gravity Exponent: " + std::to_string(g_appInstance->m_plasmaGravityExp));
 			}
@@ -281,7 +320,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Plasma Disk Thickness: " + std::to_string(g_appInstance->m_plasmaDiskThickness));
 			}
 			break;
-		case 'R':  // Reset plasma parameters to defaults
+		case 'R':  // Reset parameters to defaults
 			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaAngularVel = 0.8f;
 				g_appInstance->m_plasmaGravityExp = 1.5f;
@@ -296,7 +335,68 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				g_appInstance->m_plasmaOffsetZ = 0.0f;
 				LOGI("Plasma parameters reset to defaults");
 			}
+			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->ResetParticles();
+				LOGI("Particles reset!");
+			}
 			break;
+
+		// MODE 9: Mesh Particle System Controls (AccretionMeshParticles)
+		case 'G':  // Decrease gravity
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustGravity(-50.0f);
+				LOGI("Gravity decreased");
+			}
+			break;
+		case 'H':  // Increase gravity
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustGravity(50.0f);
+				LOGI("Gravity increased");
+			}
+			break;
+		case 'J':  // Decrease turbulence
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustTurbulence(-1.0f);
+				LOGI("Turbulence decreased");
+			}
+			break;
+		case 'K':  // Increase turbulence
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustTurbulence(1.0f);
+				LOGI("Turbulence increased");
+			}
+			break;
+		case 'Z':  // Decrease damping
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustDamping(-0.01f);
+				LOGI("Damping decreased");
+			}
+			break;
+		case 'X':  // Increase damping
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustDamping(0.01f);
+				LOGI("Damping increased");
+			}
+			break;
+		case 'V':  // Decrease angular momentum
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustAngularMomentum(-0.1f);
+				LOGI("Angular momentum decreased");
+			}
+			break;
+		case VK_OEM_COMMA:  // , key: Decrease color temperature offset
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustColorTempOffset(-100.0f);
+				LOGI("Color temperature offset decreased");
+			}
+			break;
+		case VK_OEM_PERIOD:  // . key: Increase color temperature offset
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
+				g_appInstance->m_meshParticleSystem->AdjustColorTempOffset(100.0f);
+				LOGI("Color temperature offset increased");
+			}
+			break;
+		// Note: 'C' key handled earlier with torchlight demo mode
 		}
 	}
 
@@ -308,7 +408,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 	}
 
-	// Mouse input handling
+	// Mouse input handling with Ctrl modifier
 	static bool mouseCapturing = false;
 	static POINT lastMousePos = {0, 0};
 
@@ -317,19 +417,26 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			// Torchlight mode: LMB turns torch on
 			g_appInstance->m_torchOn = true;
 		}
-		SetCapture(hWnd);
-		mouseCapturing = true;
-		GetCursorPos(&lastMousePos);
 	}
 	else if (msg == WM_LBUTTONUP) {
 		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 			// Torchlight mode: LMB release turns torch off
 			g_appInstance->m_torchOn = false;
 		}
-		ReleaseCapture();
-		mouseCapturing = false;
 	}
 	else if (msg == WM_MOUSEMOVE) {
+		static int s_mouseMoveCount = 0;
+		if (s_mouseMoveCount < 3) {
+			LOGI("WM_MOUSEMOVE received #" + std::to_string(s_mouseMoveCount));
+			s_mouseMoveCount++;
+		}
+
+		// Check if Ctrl key is pressed
+		bool ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+		if (s_mouseMoveCount < 3) {
+			LOGI("Ctrl pressed: " + std::string(ctrlPressed ? "YES" : "NO"));
+		}
+
 		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 			// Torchlight mode: track mouse position for light direction
 			RECT clientRect;
@@ -338,17 +445,40 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			g_appInstance->m_mouseX = float(mousePos.x) / float(clientRect.right);
 			g_appInstance->m_mouseY = float(mousePos.y) / float(clientRect.bottom);
 		}
-		else if (mouseCapturing && g_appInstance && g_appInstance->m_camera) {
-			POINT currentMousePos;
-			GetCursorPos(&currentMousePos);
+		else if (ctrlPressed && g_appInstance && g_appInstance->m_camera) {
+			// Ctrl+Mouse drag for camera control
+			if (!mouseCapturing) {
+				// Start capturing
+				mouseCapturing = true;
+				GetCursorPos(&lastMousePos);
+				SetCapture(hWnd);
+				ShowCursor(FALSE);
+				LOGI("Ctrl+Mouse: Camera control started");
+			} else {
+				// Continue capturing
+				POINT currentMousePos;
+				GetCursorPos(&currentMousePos);
 
-			int deltaX = currentMousePos.x - lastMousePos.x;
-			int deltaY = currentMousePos.y - lastMousePos.y;
+				int deltaX = currentMousePos.x - lastMousePos.x;
+				int deltaY = currentMousePos.y - lastMousePos.y;
 
-			// Pass mouse delta to camera for orbit/rotation
-			g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
-
-			lastMousePos = currentMousePos;
+				if (deltaX != 0 || deltaY != 0) {
+					static int s_mouseLogCount = 0;
+					if (s_mouseLogCount < 5) {
+						LOGI("Mouse move: deltaX=" + std::to_string(deltaX) + " deltaY=" + std::to_string(deltaY));
+						s_mouseLogCount++;
+					}
+					g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
+					SetCursorPos(lastMousePos.x, lastMousePos.y);
+				}
+			}
+		}
+		else if (mouseCapturing) {
+			// Ctrl released - stop capturing
+			mouseCapturing = false;
+			ReleaseCapture();
+			ShowCursor(TRUE);
+			LOGI("Ctrl+Mouse: Camera control stopped");
 		}
 	}
 	else if (msg == WM_MOUSEWHEEL && g_appInstance) {
@@ -2022,8 +2152,9 @@ void App::renderFrameDXR() {
 				// Render particles with mesh shaders
 				DirectX::XMMATRIX viewMatrix = m_camera->GetViewMatrix();
 				DirectX::XMMATRIX projMatrix = m_camera->GetProjectionMatrix();
+				DirectX::XMFLOAT3 cameraPos = m_camera->GetPosition();
 				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
-					viewMatrix, projMatrix, rtvHandle, m_width, m_height);
+					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height);
 
 				// Transition backbuffer back to present
 				D3D12_RESOURCE_BARRIER toPresent{};

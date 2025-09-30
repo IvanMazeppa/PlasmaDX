@@ -2,6 +2,7 @@
 #include <DirectXMath.h>
 #include <wrl.h>
 #include <d3d12.h>
+#include <algorithm>
 
 class Camera {
 public:
@@ -26,6 +27,17 @@ public:
     // Handle input
     void OnMouseMove(int deltaX, int deltaY);
     void SetKeyState(char key, bool pressed);
+
+    // Keyboard rotation (Ctrl+WASD)
+    void RotateYaw(float delta) {
+        m_yaw += delta;
+        UpdateMatrices();
+    }
+    void RotatePitch(float delta) {
+        m_pitch += delta;
+        m_pitch = std::clamp(m_pitch, -1.5f, 1.5f); // Limit pitch to prevent flipping
+        UpdateMatrices();
+    }
 
     // Update aspect ratio (on window resize)
     void SetAspectRatio(float aspectRatio);
@@ -75,8 +87,8 @@ private:
     float m_farPlane = 1000.0f;
 
     // Movement
-    float m_moveSpeed = 5.0f;
-    float m_lookSpeed = 0.002f;
+    float m_moveSpeed = 50.0f; // Much faster for large particle cloud
+    float m_lookSpeed = 0.005f; // More responsive mouse look
     bool m_keys[256] = {};
 
     // Matrices and GPU data

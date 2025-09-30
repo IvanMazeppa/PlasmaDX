@@ -14,7 +14,9 @@ struct RenderConstants {
     float3 cameraPos;
     float particleSize;
     float temperatureScale;
-    float3 padding;
+    float colorTempOffset;  // Runtime color adjustment
+    float colorTempScale;   // Runtime color scaling
+    float padding;
 };
 
 struct VertexOutput {
@@ -27,32 +29,39 @@ struct VertexOutput {
 StructuredBuffer<Particle> particles : register(t0);
 ConstantBuffer<RenderConstants> renderConstants : register(b0);
 
-// Temperature to color mapping (NASA-style plasma visualization)
+// Temperature to color mapping optimized for galaxy colors
+// Reduces blue dominance and creates warmer, more galactic appearance
 float3 TemperatureToColor(float temperature) {
-    // Normalize temperature to 0-1 range (800K to 26000K for wider spectrum)
-    float t = saturate((temperature - 800.0) / 25200.0);
+    // Apply runtime adjustable offset and scale before normalization
+    float adjustedTemp = (temperature + renderConstants.colorTempOffset) * renderConstants.colorTempScale;
 
-    // NASA-style color mapping: blue (cold) -> cyan -> yellow -> orange -> red (hot)
+    // Normalize temperature to 0-1 range (800K to 26000K)
+    float t = saturate((adjustedTemp - 800.0) / 25200.0);
+
+    // Galaxy-inspired color gradient:
+    // Red (cool/outer) -> Orange -> Yellow -> White (hot/core)
+    // This matches typical galaxy color distributions
     float3 color;
+
     if (t < 0.25) {
-        // Blue to cyan
+        // Deep red to orange-red (0.0 to 0.25) - outer galaxy regions
         float blend = t / 0.25;
-        color = lerp(float3(0.2, 0.4, 1.0), float3(0.0, 1.0, 1.0), blend);
+        color = lerp(float3(0.5, 0.1, 0.05), float3(1.0, 0.3, 0.1), blend);
     } else if (t < 0.5) {
-        // Cyan to yellow
+        // Orange-red to orange (0.25 to 0.5) - mid regions
         float blend = (t - 0.25) / 0.25;
-        color = lerp(float3(0.0, 1.0, 1.0), float3(1.0, 1.0, 0.0), blend);
+        color = lerp(float3(1.0, 0.3, 0.1), float3(1.0, 0.6, 0.2), blend);
     } else if (t < 0.75) {
-        // Yellow to orange
+        // Orange to yellow-white (0.5 to 0.75) - inner regions
         float blend = (t - 0.5) / 0.25;
-        color = lerp(float3(1.0, 1.0, 0.0), float3(1.0, 0.6, 0.0), blend);
+        color = lerp(float3(1.0, 0.6, 0.2), float3(1.0, 0.95, 0.7), blend);
     } else {
-        // Orange to red
+        // Yellow-white to pure white (0.75 to 1.0) - hot cores
         float blend = (t - 0.75) / 0.25;
-        color = lerp(float3(1.0, 0.6, 0.0), float3(1.0, 0.2, 0.0), blend);
+        color = lerp(float3(1.0, 0.95, 0.7), float3(1.0, 1.0, 1.0), blend);
     }
 
-    return color * (0.5 + t * 1.5); // Increase brightness with temperature
+    return color;
 }
 
 [NumThreads(32, 1, 1)]
@@ -76,14 +85,16 @@ void main(
 
     Particle p = particles[particleIndex];
 
-    // Calculate camera-facing billboard vectors
+    // Calculate camera-facing billboard vectors (matches Vulkan reference)
     float3 worldPos = p.position;
-    float3 viewDir = normalize(renderConstants.cameraPos - worldPos);
-    float3 right = normalize(cross(float3(0, 1, 0), viewDir));
-    float3 up = cross(viewDir, right);
+    float3 toCamera = renderConstants.cameraPos - worldPos;
+    float3 forward = normalize(toCamera);
+    float3 right = normalize(cross(forward, float3(0, 1, 0)));
+    float3 up = cross(right, forward);
 
-    // Scale based on particle size and temperature (hotter = larger)
-    float scale = renderConstants.particleSize * (1.0 + p.temperature / 5000.0 * 0.5);
+    // Scale based on particle size with subtle temperature variation (hotter = slightly larger)
+    float tempScale = saturate((p.temperature - 800.0) / 25200.0); // 0 to 1
+    float scale = renderConstants.particleSize * (1.0 + tempScale * 0.2); // Only 20% size increase for hottest particles
     right *= scale;
     up *= scale;
 
