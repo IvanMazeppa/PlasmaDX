@@ -68,10 +68,15 @@ void SBT::Build() {
 		return;
 	}
 
-	if (m_hit.empty() || !m_hit[0].shaderIdentifier) {
+	// Hit groups are optional (e.g., shadow rays may not need them)
+	if (!m_hit.empty() && !m_hit[0].shaderIdentifier) {
 		LOGE("SBT: CRITICAL - hit group shader identifier is NULL! SBT build FAILED!");
 		LOGE("SBT: Hit group records available: " + std::to_string(m_hit.size()));
 		return;
+	}
+
+	if (m_hit.empty()) {
+		LOGI("SBT: No hit groups (shadow rays or miss-only pipeline)");
 	}
 
 	LOGI("SBT: All shader identifiers valid, proceeding with GPU allocation");
@@ -87,7 +92,7 @@ void SBT::Build() {
 	// Calculate section sizes
 	UINT raygenSectionSize = Align(raygenRecordSize, D3D12_RAYTRACING_SHADER_TABLE_ALIGNMENT);
 	UINT missSectionSize = Align(missRecordSize * (UINT)m_miss.size(), D3D12_RAYTRACING_SHADER_TABLE_ALIGNMENT);
-	UINT hitSectionSize = Align(hitRecordSize * (UINT)m_hit.size(), D3D12_RAYTRACING_SHADER_TABLE_ALIGNMENT);
+	UINT hitSectionSize = m_hit.empty() ? 0 : Align(hitRecordSize * (UINT)m_hit.size(), D3D12_RAYTRACING_SHADER_TABLE_ALIGNMENT);
 
 	// Total SBT size
 	UINT sbtSize = raygenSectionSize + missSectionSize + hitSectionSize;
@@ -140,9 +145,14 @@ void SBT::Build() {
 		m_missSection.SizeInBytes = missRecordSize * (UINT)m_miss.size();
 		m_missSection.StrideInBytes = missRecordSize;
 
-		m_hitSection.StartAddress = m_missSection.StartAddress + missSectionSize;
-		m_hitSection.SizeInBytes = hitRecordSize * (UINT)m_hit.size();
-		m_hitSection.StrideInBytes = hitRecordSize;
+		if (!m_hit.empty()) {
+			m_hitSection.StartAddress = m_missSection.StartAddress + missSectionSize;
+			m_hitSection.SizeInBytes = hitRecordSize * (UINT)m_hit.size();
+			m_hitSection.StrideInBytes = hitRecordSize;
+		} else {
+			// Zero out hit section for pipelines without hit groups
+			m_hitSection = {};
+		}
 
 		// Write raygen record
 		uint8_t* currentPtr = pData;
@@ -156,14 +166,16 @@ void SBT::Build() {
 			memcpy(currentPtr, m_miss[i].shaderIdentifier, shaderIdentifierSize);
 			currentPtr += missRecordSize;
 		}
-		// Align to next section
-		currentPtr = pData + raygenSectionSize + missSectionSize;
+		// Write hit group records (if any)
+		if (!m_hit.empty()) {
+			// Align to next section
+			currentPtr = pData + raygenSectionSize + missSectionSize;
 
-		// Write hit group records
-		LOGI("SBT: Writing hit group shader identifiers");
-		for (size_t i = 0; i < m_hit.size(); ++i) {
-			memcpy(currentPtr, m_hit[i].shaderIdentifier, shaderIdentifierSize);
-			currentPtr += hitRecordSize;
+			LOGI("SBT: Writing hit group shader identifiers");
+			for (size_t i = 0; i < m_hit.size(); ++i) {
+				memcpy(currentPtr, m_hit[i].shaderIdentifier, shaderIdentifierSize);
+				currentPtr += hitRecordSize;
+			}
 		}
 
 		LOGI("SBT: Unmapping buffer");

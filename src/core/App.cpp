@@ -95,6 +95,25 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 
+		case VK_F7:  // Cycle Mode 9 sub-modes (RT technique testing)
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
+				int currentSubMode = static_cast<int>(g_appInstance->m_mode9SubMode);
+				currentSubMode = (currentSubMode + 1) % 7;  // 0-6 sub-modes
+				g_appInstance->m_mode9SubMode = static_cast<App::Mode9SubMode>(currentSubMode);
+
+				const char* subModeNames[] = {
+					"Baseline (No RT)",
+					"Shadow Map (DXR)",
+					"Particle Relight (Screen-space)",
+					"Self-Shadow (RayQuery)",
+					"OMM (Opacity Micromap)",
+					"SER (DXR 1.2 Optimized)",
+					"Recording (Offline Quality)"
+				};
+				LOGI(std::string("Mode 9 Sub-mode: ") + subModeNames[currentSubMode]);
+			}
+			break;
+
 		case 'F':  // Toggle torchlight attach/detach (only in torchlight demo mode)
 			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 				g_appInstance->m_torchAttached = !g_appInstance->m_torchAttached;
@@ -252,14 +271,22 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Plasma Angular Velocity: " + std::to_string(g_appInstance->m_plasmaAngularVel));
 			}
 			break;
-		case VK_DOWN:  // Decrease particle density
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_DOWN:  // Mode 9: Decrease particle count OR Mode 5: Decrease density
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
+				g_appInstance->m_mode9ParticleCount = std::max(10000u, g_appInstance->m_mode9ParticleCount - 10000);
+				LOGI("Mode 9 Particle Count: " + std::to_string(g_appInstance->m_mode9ParticleCount) + " (restart required)");
+			}
+			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaDensity = std::max(0.5f, g_appInstance->m_plasmaDensity - 0.1f);
 				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
 			}
 			break;
-		case VK_UP:    // Increase particle density
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_UP:    // Mode 9: Increase particle count OR Mode 5: Increase density
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
+				g_appInstance->m_mode9ParticleCount = std::min(500000u, g_appInstance->m_mode9ParticleCount + 10000);
+				LOGI("Mode 9 Particle Count: " + std::to_string(g_appInstance->m_mode9ParticleCount) + " (restart required)");
+			}
+			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaDensity = std::min(3.0f, g_appInstance->m_plasmaDensity + 0.1f);
 				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
 			}
@@ -636,8 +663,19 @@ int App::run() {
             double fps = frames / acc;
             wchar_t title[256];
 
+            // Mode 9: Show sub-mode and particle count
+            if (m_demoMode == DemoMode::AccretionMeshParticles) {
+                const wchar_t* subModeNames[] = {
+                    L"Baseline", L"ShadowMap", L"Relight", L"SelfShadow", L"OMM", L"SER", L"Recording"
+                };
+                swprintf_s(title, L"PlasmaDX - Mode 9.%d (%s) [%.1f FPS] [%uK particles]",
+                          static_cast<int>(m_mode9SubMode),
+                          subModeNames[static_cast<int>(m_mode9SubMode)],
+                          fps,
+                          m_mode9ParticleCount / 1000);
+            }
             // Include SER status in title if available
-            if (m_dxrFeatures.shaderExecutionReordering) {
+            else if (m_dxrFeatures.shaderExecutionReordering) {
                 swprintf_s(title, L"PlasmaDX - DXR %s [%.1f FPS] [SER: %s]",
                           m_dxrFeatures.raytracingTier >= D3D12_RAYTRACING_TIER_1_1 ? L"1.1+" : L"1.0",
                           fps,
@@ -1587,6 +1625,15 @@ bool App::initializeDXRCore() {
 					m_demoMode = DemoMode::DXR12Test;
 				} else {
 					LOGI("Mesh particle system initialized successfully (100K particles)");
+
+					// Mode 9.1+: Create shadow map texture and pipeline for RT lighting
+					if (!createShadowMapTexture()) {
+						LOGW("Failed to create shadow map texture - Mode 9.1+ will not work");
+					} else if (!createShadowPipeline()) {
+						LOGW("Failed to create shadow pipeline - Mode 9.1+ will not work");
+					} else {
+						LOGI("Mode 9 RT lighting ready (shadow map + pipeline initialized)");
+					}
 				}
 			} catch (const std::exception& e) {
 				LOGE(std::string("Mesh particle system initialization threw exception: ") + e.what());
@@ -2122,6 +2169,11 @@ void App::renderFrameDXR() {
 				// Update particle physics (accretion disk simulation)
 				m_meshParticleSystem->UpdatePhysics(m_cmdList.Get(), deltaTime);
 
+				// Mode 9.1+: Generate DXR shadow map before particle rendering
+				if (m_mode9SubMode >= Mode9SubMode::ShadowMap) {
+					renderShadowMap();
+				}
+
 				// Get current backbuffer for direct rendering
 				m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
 				auto backbuffer = m_backbuffers[m_frameIndex];
@@ -2153,8 +2205,20 @@ void App::renderFrameDXR() {
 				DirectX::XMMATRIX viewMatrix = m_camera->GetViewMatrix();
 				DirectX::XMMATRIX projMatrix = m_camera->GetProjectionMatrix();
 				DirectX::XMFLOAT3 cameraPos = m_camera->GetPosition();
+
+				// Bind descriptor heap for shadow map SRV (required for descriptor table access)
+				ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+				m_cmdList->SetDescriptorHeaps(1, heaps);
+
+				// Get shadow map GPU handle for Mode 9.1+
+				D3D12_GPU_DESCRIPTOR_HANDLE shadowMapGpuHandle = {};
+				if (m_shadowMapSrvIndex != UINT_MAX) {
+					shadowMapGpuHandle = m_descriptorAllocator->GetGPUHandle(m_shadowMapSrvIndex);
+				}
+
 				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
-					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height);
+					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
+					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode));
 
 				// Transition backbuffer back to present
 				D3D12_RESOURCE_BARRIER toPresent{};
@@ -2729,6 +2793,291 @@ void App::recreateHDRTexture() {
 
     // Recreate with new size
     createHDRTexture();
+}
+
+// MODE 9.1: Shadow Map Implementation
+// Insert this into App.cpp before VOXEL PARTICLE SYSTEM section
+
+bool App::createShadowMapTexture() {
+    // Create shadow map texture (R16_FLOAT, 1024x1024) for Mode 9.1
+    // This is a dedicated resource that avoids the HDR texture driver bug
+    constexpr UINT SHADOW_MAP_SIZE = 1024;
+
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Width = SHADOW_MAP_SIZE;
+    texDesc.Height = SHADOW_MAP_SIZE;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = DXGI_FORMAT_R16_FLOAT;  // Single channel for shadow visibility
+    texDesc.SampleDesc.Count = 1;
+    texDesc.SampleDesc.Quality = 0;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    D3D12_HEAP_PROPERTIES heapProps = {};
+    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    HRESULT hr = m_device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_shadowMapTexture));
+
+    if (FAILED(hr)) {
+        LOGE("Failed to create shadow map texture: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    // Allocate descriptor indices
+    if (m_shadowMapSrvIndex == UINT_MAX) {
+        m_shadowMapSrvIndex = m_descriptorAllocator->Allocate();
+        if (m_shadowMapSrvIndex == UINT_MAX) {
+            LOGE("Failed to allocate SRV index for shadow map");
+            return false;
+        }
+    }
+
+    if (m_shadowMapUavIndex == UINT_MAX) {
+        m_shadowMapUavIndex = m_descriptorAllocator->Allocate();
+        if (m_shadowMapUavIndex == UINT_MAX) {
+            LOGE("Failed to allocate UAV index for shadow map");
+            return false;
+        }
+    }
+
+    // Create SRV for shadow map (for particle pixel shader sampling)
+    if (m_descriptorAllocator) {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = DXGI_FORMAT_R16_FLOAT;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Texture2D.MipLevels = 1;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_descriptorAllocator->GetCPUHandle(m_shadowMapSrvIndex);
+        m_device->CreateShaderResourceView(m_shadowMapTexture.Get(), &srvDesc, srvHandle);
+    }
+
+    // Create UAV for shadow map (for DXR raygen write)
+    if (m_descriptorAllocator) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+        uavDesc.Format = DXGI_FORMAT_R16_FLOAT;
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        uavDesc.Texture2D.MipSlice = 0;
+
+        D3D12_CPU_DESCRIPTOR_HANDLE uavHandle = m_descriptorAllocator->GetCPUHandle(m_shadowMapUavIndex);
+        m_device->CreateUnorderedAccessView(m_shadowMapTexture.Get(), nullptr, &uavDesc, uavHandle);
+    }
+
+    LOGI("Shadow map texture created (1024x1024 R16) - SRV[" + std::to_string(m_shadowMapSrvIndex) + "] UAV[" + std::to_string(m_shadowMapUavIndex) + "]");
+    return true;
+}
+
+void App::renderShadowMap() {
+    if (!m_shadowPipeline || !m_shadowSBT || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
+        return; // Not initialized yet or Mode 9.0 baseline
+    }
+
+    PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Shadow Map Generation");
+
+    // Transition shadow map to UAV state
+    D3D12_RESOURCE_BARRIER toUAV{};
+    toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toUAV.Transition.pResource = m_shadowMapTexture.Get();
+    toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    toUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    m_cmdList->ResourceBarrier(1, &toUAV);
+
+    // Clear shadow map to 1.0 (fully lit)
+    float clearValue[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    m_cmdList->ClearUnorderedAccessViewFloat(
+        m_descriptorAllocator->GetGPUHandle(m_shadowMapUavIndex),
+        m_descriptorAllocator->GetCPUHandle(m_shadowMapUavIndex),
+        m_shadowMapTexture.Get(),
+        clearValue,
+        0, nullptr);
+
+    // Set up DXR pipeline state
+    m_cmdList->SetComputeRootSignature(m_shadowRootSignature.Get());
+    m_cmdList->SetPipelineState1(m_shadowPipeline->GetPSO());
+
+    // Bind descriptor heap
+    ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+    m_cmdList->SetDescriptorHeaps(1, heaps);
+
+    // Parameter 0: TLAS SRV (t0)
+    m_cmdList->SetComputeRootDescriptorTable(0, m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex));
+
+    // Parameter 1: Shadow map UAV (u0)
+    m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_shadowMapUavIndex));
+
+    // Parameter 2: Shadow parameters (b0)
+    // Light direction: directional light from above-right (normalized)
+    DirectX::XMFLOAT3 lightDir = { 0.5f, -0.7f, 0.3f };
+    DirectX::XMVECTOR lightVec = DirectX::XMLoadFloat3(&lightDir);
+    lightVec = DirectX::XMVector3Normalize(lightVec);
+    DirectX::XMStoreFloat3(&lightDir, lightVec);
+
+    // Shadow parameters matching HLSL cbuffer layout
+    struct ShadowParams {
+        DirectX::XMFLOAT3 lightDirection;  // 12 bytes
+        float shadowBias;                   // 4 bytes
+        DirectX::XMFLOAT2 shadowMapSize;   // 8 bytes
+        DirectX::XMFLOAT2 padding;         // 8 bytes (total 32 bytes / 8 dwords)
+    } shadowParams;
+    shadowParams.lightDirection = lightDir;
+    shadowParams.shadowBias = 0.01f;
+    shadowParams.shadowMapSize = DirectX::XMFLOAT2(1024.0f, 1024.0f);
+    shadowParams.padding = DirectX::XMFLOAT2(0.0f, 0.0f);
+
+    m_cmdList->SetComputeRoot32BitConstants(2, 8, &shadowParams, 0);
+
+    // Get dispatch rays descriptor from SBT (1024x1024 shadow map)
+    D3D12_DISPATCH_RAYS_DESC dispatchDesc = m_shadowSBT->GetDispatchRaysDesc(1024, 1024);
+    m_cmdList->DispatchRays(&dispatchDesc);
+
+    // Transition shadow map to SRV state for sampling
+    D3D12_RESOURCE_BARRIER toSRV{};
+    toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toSRV.Transition.pResource = m_shadowMapTexture.Get();
+    toSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    toSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    toSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    m_cmdList->ResourceBarrier(1, &toSRV);
+}
+
+bool App::createShadowPipeline() {
+    // Load shadow shader DXIL
+    LOGI("Loading shadow map shader...");
+    std::string errorMsg;
+    if (!FileLoader::LoadDXILShader("shaders/mode9/shadow_map.dxil", m_shadowShaderBlob, errorMsg)) {
+        LOGE("Failed to load shadow shader DXIL: " + errorMsg);
+        return false;
+    }
+    LOGI("Shadow shader loaded (" + std::to_string(m_shadowShaderBlob->GetBufferSize()) + " bytes)");
+
+    // Create shadow root signature (simpler than main DXR)
+    // Parameter 0: TLAS SRV (t0)
+    // Parameter 1: Shadow map UAV (u0)
+    // Parameter 2: Root constants for shadow params (b0)
+    
+    D3D12_DESCRIPTOR_RANGE srvRange{};
+    srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange.NumDescriptors = 1;
+    srvRange.BaseShaderRegister = 0;  // t0
+    srvRange.RegisterSpace = 0;
+    srvRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_DESCRIPTOR_RANGE uavRange{};
+    uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uavRange.NumDescriptors = 1;
+    uavRange.BaseShaderRegister = 0;  // u0
+    uavRange.RegisterSpace = 0;
+    uavRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER params[3]{};
+
+    // TLAS SRV descriptor table
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[0].DescriptorTable.NumDescriptorRanges = 1;
+    params[0].DescriptorTable.pDescriptorRanges = &srvRange;
+    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    // Shadow map UAV descriptor table
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[1].DescriptorTable.NumDescriptorRanges = 1;
+    params[1].DescriptorTable.pDescriptorRanges = &uavRange;
+    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    // Shadow parameters root constants (8 floats = 32 bytes)
+    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    params[2].Constants.Num32BitValues = 8;
+    params[2].Constants.ShaderRegister = 0;  // b0
+    params[2].Constants.RegisterSpace = 0;
+    params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC rootSigDesc{};
+    rootSigDesc.NumParameters = 3;
+    rootSigDesc.pParameters = params;
+    rootSigDesc.NumStaticSamplers = 0;
+    rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serializedRootSig, &errorBlob);
+    if (FAILED(hr)) {
+        LOGE("Failed to serialize shadow root signature");
+        return false;
+    }
+
+    hr = m_device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&m_shadowRootSignature));
+    if (FAILED(hr)) {
+        LOGE("Failed to create shadow root signature");
+        return false;
+    }
+
+    // Create shadow pipeline
+    m_shadowPipeline = std::make_unique<Pipeline>(m_device.Get());
+
+    std::vector<std::wstring> exports = { L"ShadowRayGen", L"ShadowMiss" };
+    m_shadowPipeline->AddDXILLibrary(
+        m_shadowShaderBlob->GetBufferPointer(),
+        m_shadowShaderBlob->GetBufferSize(),
+        exports);
+
+    // No hit group needed - shadow rays use RAY_FLAG_SKIP_CLOSEST_HIT_SHADER
+
+    // Set shader config (ShadowPayload = 1 float = 4 bytes)
+    m_shadowPipeline->SetShaderConfig(4, 0);
+
+    // Set pipeline config (no recursion)
+    m_shadowPipeline->SetPipelineConfig(1);
+
+    // Set root signature
+    m_shadowPipeline->SetGlobalRootSignature(m_shadowRootSignature.Get());
+
+    // Create PSO
+    LOGI("Creating shadow PSO...");
+    m_shadowPipeline->Create();
+    LOGI("Shadow PSO created");
+
+    // Create shadow SBT
+    m_shadowSBT = std::make_unique<SBT>(m_device.Get());
+    auto psoProps = m_shadowPipeline->GetPSOProperties();
+    if (!psoProps) {
+        LOGE("Shadow PSO properties are null");
+        return false;
+    }
+    m_shadowSBT->SetPSOProperties(psoProps);
+
+    // Raygen record
+    SBT::ShaderRecord raygenRecord;
+    raygenRecord.shaderIdentifier = psoProps->GetShaderIdentifier(L"ShadowRayGen");
+    if (!raygenRecord.shaderIdentifier) {
+        LOGE("ShadowRayGen shader identifier is null");
+        return false;
+    }
+    m_shadowSBT->SetRaygenRecord(raygenRecord);
+
+    // Miss record
+    SBT::ShaderRecord missRecord;
+    missRecord.shaderIdentifier = psoProps->GetShaderIdentifier(L"ShadowMiss");
+    if (!missRecord.shaderIdentifier) {
+        LOGE("ShadowMiss shader identifier is null");
+        return false;
+    }
+    m_shadowSBT->AddMissRecord(missRecord);
+
+    // No hit group needed - shadow rays skip closest hit shader
+
+    // Build SBT
+    m_shadowSBT->Build();
+    LOGI("Shadow SBT built successfully");
+
+    return true;
 }
 
 // ============================================================================

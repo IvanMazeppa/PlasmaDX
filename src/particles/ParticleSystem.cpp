@@ -187,13 +187,32 @@ bool ParticleSystem::CreateComputePipeline() {
 }
 
 bool ParticleSystem::CreateMeshPipeline() {
-    // Create root signature for mesh pipeline
-    CD3DX12_ROOT_PARAMETER1 rootParams[2];
-    rootParams[0].InitAsShaderResourceView(0); // Particle buffer (SRV for mesh shader)
-    rootParams[1].InitAsConstantBufferView(0); // Render constants
+    // Create root signature for mesh pipeline (Mode 9.1+ shadow map support)
+    // Param 0: Particle buffer SRV (t0)
+    // Param 1: Render constants CBV (b0)
+    // Param 2: Shadow map SRV (t1) - descriptor table
+    // Param 3: Mode params CBV (b1) - 32-bit constants for sub-mode flag
+    // Param 4: Static sampler (s0) for shadow map
+
+    CD3DX12_DESCRIPTOR_RANGE1 shadowMapRange;
+    shadowMapRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // 1 SRV at t1
+
+    CD3DX12_ROOT_PARAMETER1 rootParams[4];
+    rootParams[0].InitAsShaderResourceView(0); // Particle buffer (SRV t0 for mesh shader)
+    rootParams[1].InitAsConstantBufferView(0); // Render constants (CBV b0)
+    rootParams[2].InitAsDescriptorTable(1, &shadowMapRange); // Shadow map (SRV t1)
+    rootParams[3].InitAsConstants(4, 1); // Mode params (4 dwords = 16 bytes at b1)
+
+    // Static sampler for shadow map (s0)
+    CD3DX12_STATIC_SAMPLER_DESC shadowSampler(
+        0, // s0
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR,
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP);
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
-    rootSigDesc.Init_1_1(_countof(rootParams), rootParams);
+    rootSigDesc.Init_1_1(_countof(rootParams), rootParams, 1, &shadowSampler);
 
     Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
@@ -359,13 +378,16 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
                                    const DirectX::XMMATRIX& projMatrix,
                                    const DirectX::XMFLOAT3& cameraPos,
                                    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
-                                   UINT width, UINT height) {
+                                   UINT width, UINT height,
+                                   D3D12_GPU_DESCRIPTOR_HANDLE shadowMapSrv,
+                                   uint32_t mode9SubMode) {
     static bool s_firstCall = true;
     if (s_firstCall) {
         LOGI("ParticleSystem::RenderParticles called - starting mesh shader rendering");
         LOGI("Camera position: x=" + std::to_string(cameraPos.x) +
              " y=" + std::to_string(cameraPos.y) +
              " z=" + std::to_string(cameraPos.z));
+        LOGI("Shadow map SRV handle: ptr=0x" + std::to_string(shadowMapSrv.ptr) + " Mode=" + std::to_string(mode9SubMode));
         s_firstCall = false;
     }
 
@@ -425,6 +447,17 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     cmdList6->SetPipelineState(m_meshPSO.Get());
     cmdList6->SetGraphicsRootShaderResourceView(0, m_particleBuffer->GetGPUVirtualAddress());
     cmdList6->SetGraphicsRootConstantBufferView(1, m_renderConstantsBuffer->GetGPUVirtualAddress());
+
+    // Shadow map descriptor table (param 2) - always required (D3D12 requires all params set)
+    if (shadowMapSrv.ptr == 0) {
+        LOGE("CRITICAL: Shadow map descriptor is NULL! Aborting render to prevent GPU crash");
+        return;
+    }
+    cmdList6->SetGraphicsRootDescriptorTable(2, shadowMapSrv);
+
+    // Mode params (b1): 4 dwords = { mode9SubMode, padding, padding, padding }
+    uint32_t modeParams[4] = { mode9SubMode, 0, 0, 0 };
+    cmdList6->SetGraphicsRoot32BitConstants(3, 4, modeParams, 0);
 
     // Dispatch mesh shader workgroups
     // Each workgroup handles 32 particles, creating 4 vertices and 2 triangles per particle

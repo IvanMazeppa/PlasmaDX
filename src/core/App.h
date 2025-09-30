@@ -180,6 +180,15 @@ private:
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 
+	// Mode 9.1: Shadow map resources (direct-to-backbuffer RT lighting)
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_shadowMapTexture;
+	UINT m_shadowMapSrvIndex = UINT_MAX;
+	UINT m_shadowMapUavIndex = UINT_MAX;
+	std::unique_ptr<Pipeline> m_shadowPipeline;
+	std::unique_ptr<SBT> m_shadowSBT;
+	Microsoft::WRL::ComPtr<ID3DBlob> m_shadowShaderBlob;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_shadowRootSignature;
+
 	// DXR SRV descriptors for descriptor table binding
 	UINT m_tlasSrvIndex = UINT_MAX;     // TLAS SRV for descriptor table (t0)
 	UINT m_densityVolumeSrvIndex = UINT_MAX;  // Density volume SRV for descriptor table (t1)
@@ -216,6 +225,19 @@ private:
         AccretionMeshParticles = 9  // NASA-quality accretion disk with 100K mesh shader particles
     };
     DemoMode m_demoMode = DemoMode::SphereRT;
+
+    // Mode 9 sub-modes: RT technique testing
+    enum class Mode9SubMode {
+        Baseline = 0,        // Pure mesh particles, no RT
+        ShadowMap = 1,       // DXR shadow map to separate texture
+        ParticleRelight = 2, // Apply shadow map to particles
+        SelfShadow = 3,      // RayQuery inline self-shadowing
+        OMM = 4,             // Opacity Micromap testing
+        SER = 5,             // Full DXR 1.2 with SER
+        Recording = 6        // Offline quality with accumulation
+    };
+    Mode9SubMode m_mode9SubMode = Mode9SubMode::Baseline;
+    uint32_t m_mode9ParticleCount = 100000;  // Runtime adjustable (10K-500K)
 
     // Plasma Accretion Disk physics controls (Mode 5)
     float m_plasmaAngularVel = 0.8f;      // Angular velocity multiplier (0.1-2.0)
@@ -287,6 +309,11 @@ private:
 	// HDR output methods (DXR_0018)
 	bool createHDRTexture();
 	void recreateHDRTexture();
+
+	// Mode 9.1: Shadow map methods
+	bool createShadowMapTexture();
+	bool createShadowPipeline();
+	void renderShadowMap();
 
 	// Voxel particle system methods (Mode 6)
 	bool initializeVoxelSystem();

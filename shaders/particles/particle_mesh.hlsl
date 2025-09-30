@@ -24,9 +24,18 @@ struct VertexOutput {
     float2 texCoord : TEXCOORD0;
     float3 color : COLOR0;
     float alpha : COLOR1;
+    float3 worldPos : TEXCOORD1;  // Add world position for shadow mapping
+};
+
+// Mode 9 sub-mode flag for shadow map support
+cbuffer ModeParams : register(b1) {
+    uint mode9SubMode;  // 0=Baseline, 1+=Shadow modes
+    float3 modePadding;
 };
 
 StructuredBuffer<Particle> particles : register(t0);
+Texture2D<float> shadowMap : register(t1);  // Shadow map (Mode 9.1+)
+SamplerState shadowSampler : register(s0);
 ConstantBuffer<RenderConstants> renderConstants : register(b0);
 
 // Temperature to color mapping optimized for galaxy colors
@@ -111,6 +120,7 @@ void main(
     verts[vertexIndex + 0].texCoord = float2(0.0, 1.0);
     verts[vertexIndex + 0].color = color;
     verts[vertexIndex + 0].alpha = alpha;
+    verts[vertexIndex + 0].worldPos = worldPos;  // Shadow map lookup
 
     // Bottom-right
     float3 pos1 = worldPos + right - up;
@@ -118,6 +128,7 @@ void main(
     verts[vertexIndex + 1].texCoord = float2(1.0, 1.0);
     verts[vertexIndex + 1].color = color;
     verts[vertexIndex + 1].alpha = alpha;
+    verts[vertexIndex + 1].worldPos = worldPos;
 
     // Top-left
     float3 pos2 = worldPos - right + up;
@@ -125,6 +136,7 @@ void main(
     verts[vertexIndex + 2].texCoord = float2(0.0, 0.0);
     verts[vertexIndex + 2].color = color;
     verts[vertexIndex + 2].alpha = alpha;
+    verts[vertexIndex + 2].worldPos = worldPos;
 
     // Top-right
     float3 pos3 = worldPos + right + up;
@@ -132,6 +144,7 @@ void main(
     verts[vertexIndex + 3].texCoord = float2(1.0, 0.0);
     verts[vertexIndex + 3].color = color;
     verts[vertexIndex + 3].alpha = alpha;
+    verts[vertexIndex + 3].worldPos = worldPos;
 
     // Create 2 triangles for the quad
     // Triangle 1: bottom-left, bottom-right, top-left
@@ -177,6 +190,25 @@ float4 PSMain(VertexOutput input) : SV_Target {
 
     // Apply sphere shading
     color *= (0.6 + intensity * 0.8);
+
+    // Mode 9.1+: Apply DXR shadow map
+    float shadowFactor = 1.0;
+    if (mode9SubMode >= 1) {
+        // Project particle world position to shadow map UV space
+        // Shadow map covers -100 to +100 in XZ plane (orthographic)
+        float2 shadowUV = (input.worldPos.xz + 100.0) / 200.0;
+        shadowUV.y = 1.0 - shadowUV.y;  // Flip Y for D3D texture coordinates
+
+        // Sample shadow map (1.0 = lit, 0.0 = occluded)
+        if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 && shadowUV.y >= 0.0 && shadowUV.y <= 1.0) {
+            shadowFactor = shadowMap.SampleLevel(shadowSampler, shadowUV, 0);
+            // Soften shadows (never fully black, ambient 30%)
+            shadowFactor = lerp(0.3, 1.0, shadowFactor);
+        }
+    }
+
+    // Apply shadow to final color
+    color *= shadowFactor;
 
     return float4(color, alpha);
 }

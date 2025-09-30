@@ -61,7 +61,9 @@ public:
                         const DirectX::XMMATRIX& projMatrix,
                         const DirectX::XMFLOAT3& cameraPos,
                         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
-                        UINT width, UINT height);
+                        UINT width, UINT height,
+                        D3D12_GPU_DESCRIPTOR_HANDLE shadowMapSrv = {},
+                        uint32_t mode9SubMode = 0);
 
     // Runtime adjustable parameters
     void AdjustGravity(float delta) { m_gravityStrength += delta; }
