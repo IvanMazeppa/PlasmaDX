@@ -13,13 +13,15 @@ bool ASBuilder::CreateTriangleBLAS(
 	Microsoft::WRL::ComPtr<ID3D12Resource>& outBLAS,
 	Microsoft::WRL::ComPtr<ID3D12Resource>& outScratch) {
 
-	LOGI("ASBuilder::CreateTriangleBLAS - creating triangle geometry for DXR lighting test");
+	LOGI("ASBuilder::CreateTriangleBLAS - creating HUGE occluder triangle for unmistakable shadow");
 
-	// Define simple triangle vertices for testing
+	// HUGE triangle to cover most of the particle disk
+	// Particle disk: Y=0, radius 6-100 units in XZ plane
+	// Position triangle at Y=20 (closer to particles) covering entire disk
 	XMFLOAT3 triangleVertices[] = {
-		{ 0.0f,  0.8f, 0.0f },  // Top vertex
-		{-0.8f, -0.8f, 0.0f },  // Bottom left
-		{ 0.8f, -0.8f, 0.0f }   // Bottom right
+		{   0.0f, 20.0f, -120.0f },  // Top (north) - extends beyond disk
+		{-120.0f, 20.0f,  120.0f },  // Bottom left (southwest) - huge coverage
+		{ 120.0f, 20.0f,  120.0f }   // Bottom right (southeast) - huge coverage
 	};
 
 	// Create vertex buffer
@@ -193,19 +195,29 @@ void ASBuilder::BuildBLAS(ID3D12GraphicsCommandList* cmdList,
 
 	LOGI("ASBuilder::BuildBLAS - Executing GPU build commands");
 
-	// For demonstration, we skip the actual build command since it requires DXR device
-	// In a real implementation, this would call:
-	// ComPtr<ID3D12GraphicsCommandList4> cmdList4;
-	// cmdList->QueryInterface(IID_PPV_ARGS(&cmdList4));
-	//
-	// D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC buildDesc = {};
-	// buildDesc.Inputs = m_blasInputs;
-	// buildDesc.ScratchDataBuffer = blasScratch->GetGPUVirtualAddress();
-	// buildDesc.DestAccelerationStructureData = blasResult->GetGPUVirtualAddress();
-	//
-	// cmdList4->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+	// Query for DXR command list interface
+	ComPtr<ID3D12GraphicsCommandList4> cmdList4;
+	HRESULT hr = cmdList->QueryInterface(IID_PPV_ARGS(&cmdList4));
+	if (FAILED(hr)) {
+		LOGE("Failed to query ID3D12GraphicsCommandList4 for BLAS build");
+		return;
+	}
 
-	LOGI("ASBuilder::BuildBLAS - GPU build commands completed (stub)");
+	// Build the BLAS on GPU
+	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC buildDesc = {};
+	buildDesc.Inputs = m_blasInputs;
+	buildDesc.ScratchAccelerationStructureData = blasScratch->GetGPUVirtualAddress();
+	buildDesc.DestAccelerationStructureData = blasResult->GetGPUVirtualAddress();
+
+	cmdList4->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+
+	// Add UAV barrier to ensure BLAS is built before TLAS references it
+	D3D12_RESOURCE_BARRIER uavBarrier = {};
+	uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	uavBarrier.UAV.pResource = blasResult;
+	cmdList->ResourceBarrier(1, &uavBarrier);
+
+	LOGI("ASBuilder::BuildBLAS - GPU build commands completed (REAL BUILD)");
 }
 
 void ASBuilder::BuildTLASGPU(ID3D12GraphicsCommandList* cmdList,
@@ -242,7 +254,31 @@ void ASBuilder::BuildTLASGPU(ID3D12GraphicsCommandList* cmdList,
 		LOGE("ASBuilder::BuildTLASGPU - Failed to map instance descriptor buffer");
 	}
 
-	// For demonstration, the actual TLAS build is stubbed
-	// Real implementation would use BuildRaytracingAccelerationStructure
-	LOGI("ASBuilder::BuildTLASGPU - GPU build commands completed (with real instance)");
+	// Query for DXR command list interface
+	ComPtr<ID3D12GraphicsCommandList4> cmdList4;
+	hr = cmdList->QueryInterface(IID_PPV_ARGS(&cmdList4));
+	if (FAILED(hr)) {
+		LOGE("Failed to query ID3D12GraphicsCommandList4 for TLAS build");
+		return;
+	}
+
+	// Build TLAS on GPU
+	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlasBuildDesc = {};
+	tlasBuildDesc.Inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+	tlasBuildDesc.Inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+	tlasBuildDesc.Inputs.NumDescs = 1; // One instance (our triangle)
+	tlasBuildDesc.Inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+	tlasBuildDesc.Inputs.InstanceDescs = instanceDescs->GetGPUVirtualAddress();
+	tlasBuildDesc.ScratchAccelerationStructureData = tlasScratch->GetGPUVirtualAddress();
+	tlasBuildDesc.DestAccelerationStructureData = tlasResult->GetGPUVirtualAddress();
+
+	cmdList4->BuildRaytracingAccelerationStructure(&tlasBuildDesc, 0, nullptr);
+
+	// Add UAV barrier to ensure TLAS is ready before ray tracing
+	D3D12_RESOURCE_BARRIER uavBarrier = {};
+	uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	uavBarrier.UAV.pResource = tlasResult;
+	cmdList->ResourceBarrier(1, &uavBarrier);
+
+	LOGI("ASBuilder::BuildTLASGPU - GPU build commands completed (REAL BUILD)");
 }

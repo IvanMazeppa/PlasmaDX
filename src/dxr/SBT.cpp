@@ -201,7 +201,7 @@ D3D12_DISPATCH_RAYS_DESC SBT::GetDispatchRaysDesc(UINT width, UINT height) const
 
 	// Only set addresses if we have a valid buffer
 	if (m_sbtBuffer) {
-		LOGI("SBT: Returning valid GPU addresses for dispatch");
+		// Valid SBT - return GPU addresses (no log spam)
 		desc.RayGenerationShaderRecord = m_raygenSection;
 		desc.MissShaderTable = m_missSection;
 		desc.HitGroupTable = m_hitSection;

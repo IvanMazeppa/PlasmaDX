@@ -2876,20 +2876,27 @@ bool App::createShadowMapTexture() {
 }
 
 void App::renderShadowMap() {
+    // TEMPORARY: Disable shadow map generation to isolate constant buffer issue
+    // TODO: Fix command list state management between DXR and graphics pipelines
+    return;
+
     if (!m_shadowPipeline || !m_shadowSBT || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
         return; // Not initialized yet or Mode 9.0 baseline
     }
 
     PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Shadow Map Generation");
 
-    // Transition shadow map to UAV state
-    D3D12_RESOURCE_BARRIER toUAV{};
-    toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    toUAV.Transition.pResource = m_shadowMapTexture.Get();
-    toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-    toUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    m_cmdList->ResourceBarrier(1, &toUAV);
+    // Transition shadow map to UAV state (created in UAV, so only needed after first frame)
+    static bool firstFrame = true;
+    if (!firstFrame) {
+        D3D12_RESOURCE_BARRIER toUAV{};
+        toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toUAV.Transition.pResource = m_shadowMapTexture.Get();
+        toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        toUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        m_cmdList->ResourceBarrier(1, &toUAV);
+    }
 
     // Clear shadow map to 1.0 (fully lit)
     float clearValue[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -2915,11 +2922,29 @@ void App::renderShadowMap() {
     m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_shadowMapUavIndex));
 
     // Parameter 2: Shadow parameters (b0)
-    // Light direction: directional light from above-right (normalized)
-    DirectX::XMFLOAT3 lightDir = { 0.5f, -0.7f, 0.3f };
+    // ANIMATED light direction - rotates around Y axis to make shadow sweep across particles
+    static float lightAnimTime = 0.0f;
+    static int logCount = 0;
+    lightAnimTime += 0.016f; // Approx 60fps timestep
+
+    // Rotate light in XZ plane (keeping Y component for elevation)
+    float angle = lightAnimTime * 0.8f; // Slow rotation for clear visualization
+    DirectX::XMFLOAT3 lightDir = {
+        sinf(angle) * 0.8f,  // X: rotates in circle
+        -0.6f,                // Y: elevated above particles (negative = from above)
+        cosf(angle) * 0.8f   // Z: rotates in circle
+    };
     DirectX::XMVECTOR lightVec = DirectX::XMLoadFloat3(&lightDir);
     lightVec = DirectX::XMVector3Normalize(lightVec);
     DirectX::XMStoreFloat3(&lightDir, lightVec);
+
+    // Debug: Log light direction periodically
+    if (logCount < 5 || logCount % 60 == 0) {
+        LOGI("Shadow light anim: time=" + std::to_string(lightAnimTime) +
+             " angle=" + std::to_string(angle) +
+             " dir=(" + std::to_string(lightDir.x) + "," + std::to_string(lightDir.y) + "," + std::to_string(lightDir.z) + ")");
+    }
+    logCount++;
 
     // Shadow parameters matching HLSL cbuffer layout
     struct ShadowParams {
@@ -2939,6 +2964,12 @@ void App::renderShadowMap() {
     D3D12_DISPATCH_RAYS_DESC dispatchDesc = m_shadowSBT->GetDispatchRaysDesc(1024, 1024);
     m_cmdList->DispatchRays(&dispatchDesc);
 
+    // UAV barrier to ensure DXR writes complete
+    D3D12_RESOURCE_BARRIER uavBarrier{};
+    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    uavBarrier.UAV.pResource = m_shadowMapTexture.Get();
+    m_cmdList->ResourceBarrier(1, &uavBarrier);
+
     // Transition shadow map to SRV state for sampling
     D3D12_RESOURCE_BARRIER toSRV{};
     toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -2947,6 +2978,8 @@ void App::renderShadowMap() {
     toSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     toSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     m_cmdList->ResourceBarrier(1, &toSRV);
+
+    firstFrame = false;  // Mark that we've rendered at least once
 }
 
 bool App::createShadowPipeline() {
@@ -3028,7 +3061,7 @@ bool App::createShadowPipeline() {
         m_shadowShaderBlob->GetBufferSize(),
         exports);
 
-    // No hit group needed - shadow rays use RAY_FLAG_SKIP_CLOSEST_HIT_SHADER
+    // No hit group - use green diamond test approach (miss-only detection)
 
     // Set shader config (ShadowPayload = 1 float = 4 bytes)
     m_shadowPipeline->SetShaderConfig(4, 0);
@@ -3071,7 +3104,7 @@ bool App::createShadowPipeline() {
     }
     m_shadowSBT->AddMissRecord(missRecord);
 
-    // No hit group needed - shadow rays skip closest hit shader
+    // No hit group - green diamond test approach (miss-only)
 
     // Build SBT
     m_shadowSBT->Build();

@@ -8,7 +8,7 @@ class Pipeline {
 public:
 	explicit Pipeline(ID3D12Device* device);
 	void AddDXILLibrary(const void* data, size_t size, const std::vector<std::wstring>& exports);
-	void AddHitGroup(const std::wstring& name, const std::wstring& closestHit);
+	void AddHitGroup(const std::wstring& name, const std::wstring& closestHit, const std::wstring& anyHit = L"");
 	void SetShaderConfig(UINT payloadSizeBytes, UINT attribSizeBytes);
 	void SetPipelineConfig(UINT maxRecursionDepth);
 	void SetGlobalRootSignature(ID3D12RootSignature* rs);
@@ -27,6 +27,7 @@ private:
 	std::vector<std::wstring> m_exports;
 	std::wstring m_hitGroupName;
 	std::wstring m_closestHitShader;
+	std::wstring m_anyHitShader;
 	UINT m_payloadSize = 32;
 	UINT m_attributeSize = 8;
 	UINT m_maxRecursionDepth = 1;

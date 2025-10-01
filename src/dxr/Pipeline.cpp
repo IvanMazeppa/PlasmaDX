@@ -25,9 +25,10 @@ void Pipeline::AddDXILLibrary(const void* data, size_t size, const std::vector<s
 	LOGI("Pipeline::AddDXILLibrary - stored DXIL library with " + std::to_string(exports.size()) + " exports");
 }
 
-void Pipeline::AddHitGroup(const std::wstring& name, const std::wstring& closestHit) {
+void Pipeline::AddHitGroup(const std::wstring& name, const std::wstring& closestHit, const std::wstring& anyHit) {
 	m_hitGroupName = name;
 	m_closestHitShader = closestHit;
+	m_anyHitShader = anyHit;
 	LOGI("Pipeline::AddHitGroup - configured hit group");
 }
 
@@ -101,10 +102,11 @@ void Pipeline::Create() {
 
 		// 2. Hit Group subobject (if configured)
 		D3D12_HIT_GROUP_DESC hitGroupDesc = {};
-		if (!m_hitGroupName.empty() && !m_closestHitShader.empty()) {
+		if (!m_hitGroupName.empty() && (!m_closestHitShader.empty() || !m_anyHitShader.empty())) {
 			hitGroupDesc.HitGroupExport = m_hitGroupName.c_str();
 			hitGroupDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
-			hitGroupDesc.ClosestHitShaderImport = m_closestHitShader.c_str();
+			hitGroupDesc.ClosestHitShaderImport = m_closestHitShader.empty() ? nullptr : m_closestHitShader.c_str();
+			hitGroupDesc.AnyHitShaderImport = m_anyHitShader.empty() ? nullptr : m_anyHitShader.c_str();
 
 			subobjects.push_back({});
 			subobjects.back().Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
