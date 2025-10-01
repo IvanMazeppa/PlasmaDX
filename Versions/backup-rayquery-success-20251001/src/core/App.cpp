@@ -1201,11 +1201,9 @@ bool App::createRTVs() {
 		m_rtvHeap.Reset();
 	}
 
-	// Mode 9.2: Need extra RTV for emission texture (indices 0,1=backbuffers, 2=emission)
-	const UINT numRTVs = kBackBufferCount + 1;  // 2 backbuffers + 1 emission = 3
-	LOGI("Creating RTV descriptor heap with " + std::to_string(numRTVs) + " descriptors");
+	LOGI("Creating RTV descriptor heap with " + std::to_string(kBackBufferCount) + " descriptors");
 	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-	rtvDesc.NumDescriptors = numRTVs;
+	rtvDesc.NumDescriptors = kBackBufferCount;
 	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvDesc.NodeMask = 0;
@@ -1239,21 +1237,6 @@ bool App::createRTVs() {
 		m_device->CreateRenderTargetView(m_backbuffers[i].Get(), nullptr, dst);
 		LOGI("RTV " + std::to_string(i) + " created successfully");
 	}
-
-	// Mode 9.2: Create emission texture RTV if emission texture exists
-	if (m_emissionTexture) {
-		D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
-		rtvDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;
-		rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-		rtvDesc.Texture2D.MipSlice = 0;
-
-		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = start;
-		rtvHandle.ptr += SIZE_T(2) * SIZE_T(m_rtvDescriptorSize);  // Index 2 (after 2 backbuffers)
-		m_emissionRtvHandle = rtvHandle;
-		m_device->CreateRenderTargetView(m_emissionTexture.Get(), &rtvDesc, m_emissionRtvHandle);
-		LOGI("Emission RTV created at index 2");
-	}
-
 	LOGI("All RTVs created successfully");
 	return true;
 }
@@ -1596,8 +1579,8 @@ bool App::initializeDXRCore() {
 	// Keep reference to underlying heap for compatibility
 	m_srvUavHeap = m_descriptorAllocator->GetHeap();
 
-	// NOTE: buildAccelerationStructures() moved to after particle system initialization
-	// (see line ~1636 in mode 9 case) because particle BLAS requires particle buffer to exist
+	// Build acceleration structures
+	buildAccelerationStructures();
 
 	// Create DXR pipeline
 	createDXRPipeline();
@@ -1643,9 +1626,6 @@ bool App::initializeDXRCore() {
 				} else {
 					LOGI("Mesh particle system initialized successfully (100K particles)");
 
-					// Mode 9.1+: Build particle BLAS for self-shadowing (MUST come before shadow map setup)
-					buildAccelerationStructures();
-
 					// Mode 9.1+: Create shadow map texture and pipeline for RT lighting
 					if (!createShadowMapTexture()) {
 						LOGW("Failed to create shadow map texture - Mode 9.1+ will not work");
@@ -1653,13 +1633,6 @@ bool App::initializeDXRCore() {
 						LOGW("Failed to create shadow compute pipeline - Mode 9.1+ will not work");
 					} else {
 						LOGI("Mode 9 RT lighting ready (shadow map + RayQuery compute pipeline initialized)");
-					}
-
-					// Mode 9.2+: Create emission texture for particle lighting
-					if (!createEmissionTexture()) {
-						LOGW("Failed to create emission texture - Mode 9.2+ will not work");
-					} else {
-						LOGI("Mode 9.2 emission buffer ready");
 					}
 				}
 			} catch (const std::exception& e) {
@@ -1861,9 +1834,9 @@ void App::buildAccelerationStructures() {
 
 	PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Acceleration Structures");
 
-	// Build BLAS for debug triangle (temporary - conservative AABB causes 100% shadow)
+	// Build BLAS for triangle
 	{
-		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Triangle BLAS");
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build BLAS");
 		if (!m_asBuilder->CreateTriangleBLAS(m_blasResult, m_blasScratch)) {
 			LOGE("Failed to create triangle BLAS");
 			return;
@@ -2245,8 +2218,7 @@ void App::renderFrameDXR() {
 
 				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
 					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
-					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode),
-					m_emissionRtvHandle);  // Mode 9.2: Pass emission RTV for dual RT output
+					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode));
 
 				// Transition backbuffer back to present
 				D3D12_RESOURCE_BARRIER toPresent{};
@@ -2900,71 +2872,6 @@ bool App::createShadowMapTexture() {
     }
 
     LOGI("Shadow map texture created (1024x1024 R16) - SRV[" + std::to_string(m_shadowMapSrvIndex) + "] UAV[" + std::to_string(m_shadowMapUavIndex) + "]");
-    return true;
-}
-
-bool App::createEmissionTexture() {
-    // Create emission texture (R11G11B10_FLOAT, screen resolution) for Mode 9.2
-    // Stores emissive light from hot particles (T > 15000K)
-
-    D3D12_RESOURCE_DESC texDesc = {};
-    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    texDesc.Width = m_width;
-    texDesc.Height = m_height;
-    texDesc.DepthOrArraySize = 1;
-    texDesc.MipLevels = 1;
-    texDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;  // HDR format, no alpha needed
-    texDesc.SampleDesc.Count = 1;
-    texDesc.SampleDesc.Quality = 0;
-    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    D3D12_CLEAR_VALUE clearValue = {};
-    clearValue.Format = DXGI_FORMAT_R11G11B10_FLOAT;
-    clearValue.Color[0] = 0.0f;
-    clearValue.Color[1] = 0.0f;
-    clearValue.Color[2] = 0.0f;
-    clearValue.Color[3] = 1.0f;
-
-    HRESULT hr = m_device->CreateCommittedResource(
-        &heapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &texDesc,
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
-        &clearValue,
-        IID_PPV_ARGS(&m_emissionTexture));
-
-    if (FAILED(hr)) {
-        LOGE("Failed to create emission texture: 0x" + std::to_string(static_cast<uint32_t>(hr)));
-        return false;
-    }
-
-    // NOTE: RTV will be created later in createRTVs() after RTV heap is initialized
-    // (RTV heap doesn't exist yet at this point in initialization)
-
-    // Allocate SRV for emission texture (for future lighting passes)
-    if (m_emissionSrvIndex == UINT_MAX) {
-        m_emissionSrvIndex = m_descriptorAllocator->Allocate();
-        if (m_emissionSrvIndex == UINT_MAX) {
-            LOGE("Failed to allocate SRV index for emission texture");
-            return false;
-        }
-    }
-
-    // Create SRV for emission texture
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Texture2D.MipLevels = 1;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_descriptorAllocator->GetCPUHandle(m_emissionSrvIndex);
-    m_device->CreateShaderResourceView(m_emissionTexture.Get(), &srvDesc, srvHandle);
-
-    LOGI("Emission texture created (" + std::to_string(m_width) + "x" + std::to_string(m_height) + " R11G11B10) - SRV[" + std::to_string(m_emissionSrvIndex) + "] RTV[2]");
     return true;
 }
 

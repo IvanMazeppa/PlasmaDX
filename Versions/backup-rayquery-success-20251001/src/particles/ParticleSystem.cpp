@@ -380,8 +380,7 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
                                    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
                                    UINT width, UINT height,
                                    D3D12_GPU_DESCRIPTOR_HANDLE shadowMapSrv,
-                                   uint32_t mode9SubMode,
-                                   D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle) {
+                                   uint32_t mode9SubMode) {
     static bool s_firstCall = true;
     if (s_firstCall) {
         LOGI("ParticleSystem::RenderParticles called - starting mesh shader rendering");
@@ -401,10 +400,7 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     }
 
     // Set render targets and viewport for mesh shader rendering
-    // Mode 9.2: Use dual render targets (color + emission) if emission RTV provided
-    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2] = { rtvHandle, emissionRtvHandle };
-    UINT numRTVs = (emissionRtvHandle.ptr != 0 && mode9SubMode >= 2) ? 2 : 1;
-    cmdList6->OMSetRenderTargets(numRTVs, rtvHandles, FALSE, nullptr);
+    cmdList6->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
     // Set viewport to match render target dimensions
     D3D12_VIEWPORT viewport = {};

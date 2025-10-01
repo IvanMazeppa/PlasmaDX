@@ -24,8 +24,7 @@ struct VertexOutput {
     float2 texCoord : TEXCOORD0;
     float3 color : COLOR0;
     float alpha : COLOR1;
-    float3 worldPos : TEXCOORD1;  // World position for shadow mapping
-    float temperature : TEXCOORD2;  // Temperature for emission calculation (Mode 9.2)
+    float3 worldPos : TEXCOORD1;  // Add world position for shadow mapping
 };
 
 // Mode 9 sub-mode flag for shadow map support
@@ -121,8 +120,7 @@ void main(
     verts[vertexIndex + 0].texCoord = float2(0.0, 1.0);
     verts[vertexIndex + 0].color = color;
     verts[vertexIndex + 0].alpha = alpha;
-    verts[vertexIndex + 0].worldPos = worldPos;
-    verts[vertexIndex + 0].temperature = p.temperature;
+    verts[vertexIndex + 0].worldPos = worldPos;  // Shadow map lookup
 
     // Bottom-right
     float3 pos1 = worldPos + right - up;
@@ -131,7 +129,6 @@ void main(
     verts[vertexIndex + 1].color = color;
     verts[vertexIndex + 1].alpha = alpha;
     verts[vertexIndex + 1].worldPos = worldPos;
-    verts[vertexIndex + 1].temperature = p.temperature;
 
     // Top-left
     float3 pos2 = worldPos - right + up;
@@ -140,7 +137,6 @@ void main(
     verts[vertexIndex + 2].color = color;
     verts[vertexIndex + 2].alpha = alpha;
     verts[vertexIndex + 2].worldPos = worldPos;
-    verts[vertexIndex + 2].temperature = p.temperature;
 
     // Top-right
     float3 pos3 = worldPos + right + up;
@@ -149,7 +145,6 @@ void main(
     verts[vertexIndex + 3].color = color;
     verts[vertexIndex + 3].alpha = alpha;
     verts[vertexIndex + 3].worldPos = worldPos;
-    verts[vertexIndex + 3].temperature = p.temperature;
 
     // Create 2 triangles for the quad
     // Triangle 1: bottom-left, bottom-right, top-left
@@ -167,15 +162,8 @@ void main(
     );
 }
 
-// Pixel shader output structure for Multiple Render Targets (Mode 9.2)
-struct PSOutput {
-    float4 color : SV_Target0;      // Particle color with lighting/shadows
-    float4 emission : SV_Target1;   // Emission intensity for hot particles (Mode 9.2+)
-};
-
 // Pixel shader for particle rendering
-PSOutput PSMain(VertexOutput input) {
-    PSOutput output;
+float4 PSMain(VertexOutput input) : SV_Target {
     // Create spherical particle shape using texture coordinates
     float2 center = input.texCoord - 0.5;
     float distFromCenter = length(center) * 2.0; // Scale to 0-1 range
@@ -215,28 +203,16 @@ PSOutput PSMain(VertexOutput input) {
         if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 && shadowUV.y >= 0.0 && shadowUV.y <= 1.0) {
             shadowFactor = shadowMap.SampleLevel(shadowSampler, shadowUV, 0);
 
-            // DEBUG VISUALIZATION v4: EXAGGERATED SHADOW - Shadowed areas = VERY DARK, Lit areas = GALAXY COLORS
+            // DEBUG VISUALIZATION v3: Shadowed areas = DARK, Lit areas = GALAXY COLORS
             // shadowFactor: 0.0 = occluded (in shadow), 1.0 = lit (no occlusion)
-            // Apply EXTREME darkening to shadowed particles (10% brightness for unmistakable verification)
-            float3 debugColor = lerp(color * 0.1, color, shadowFactor);
-            color = debugColor;
+            // Apply heavy darkening to shadowed particles (20% brightness)
+            float3 debugColor = lerp(color * 0.2, color, shadowFactor);
+            return float4(debugColor, alpha);
         }
     }
 
-    // Apply shadow to final color
+    // Apply shadow to final color (not reached due to early return above)
     color *= shadowFactor;
 
-    // Calculate emission for Mode 9.2+
-    float emissionStrength = 0.0;
-    if (mode9SubMode >= 2 && input.temperature > 15000.0) {
-        // Only hot particles emit light (>15000K threshold)
-        float normalizedTemp = saturate((input.temperature - 15000.0) / 11000.0); // 15000K-26000K range
-        emissionStrength = pow(normalizedTemp, 2.0) * 5.0; // Exponential falloff, scale factor 5.0
-    }
-
-    // Output to dual render targets
-    output.color = float4(color, alpha);
-    output.emission = float4(input.color * emissionStrength, emissionStrength);
-
-    return output;
+    return float4(color, alpha);
 }

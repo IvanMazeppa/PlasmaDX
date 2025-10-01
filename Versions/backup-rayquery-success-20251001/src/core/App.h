@@ -316,12 +316,6 @@ private:
 	bool createShadowComputePipeline();
 	void renderShadowMap();
 
-	// Mode 9.2: Emission buffer for particle lighting
-	bool createEmissionTexture();
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionTexture;
-	D3D12_CPU_DESCRIPTOR_HANDLE m_emissionRtvHandle = {};
-	UINT m_emissionSrvIndex = UINT_MAX;
-
 	// Voxel particle system methods (Mode 6)
 	bool initializeVoxelSystem();
 	bool createVoxelTextures();

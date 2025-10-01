@@ -46,7 +46,6 @@ class Particles;
 class DensityVolume;
 class RayMarcher;
 class MetaballSystem;
-class ParticleSystem;
 
 // DXR 1.2 and SER feature flags structure
 struct DXRFeatures {
@@ -107,7 +106,6 @@ private:
 	bool createDevice();
 	bool createSwapchain();
 	bool createRTVs();
-	bool testRTVCreation();
 	bool createCommandObjects();
 	void attachDebugConsole();
 	void renderFrame();
@@ -180,16 +178,6 @@ private:
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 
-	// Mode 9.1: Shadow map resources (DXR 1.1 RayQuery compute shader)
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_shadowMapTexture;
-	UINT m_shadowMapSrvIndex = UINT_MAX;
-	UINT m_shadowMapUavIndex = UINT_MAX;
-
-	// RayQuery compute pipeline (replaces DispatchRays RTPSO/SBT)
-	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_shadowComputePSO;
-	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_shadowComputeRootSignature;
-	Microsoft::WRL::ComPtr<ID3DBlob> m_shadowComputeShaderBlob;
-
 	// DXR SRV descriptors for descriptor table binding
 	UINT m_tlasSrvIndex = UINT_MAX;     // TLAS SRV for descriptor table (t0)
 	UINT m_densityVolumeSrvIndex = UINT_MAX;  // Density volume SRV for descriptor table (t1)
@@ -221,24 +209,9 @@ private:
         VolumetricSculpture = 4, // Static complex volumetric shape with sweeping RT lighting
         PlasmaAccretion = 5,     // Orbital plasma accretion disk with volumetric self-shadowing
         VoxelParticles = 6,      // Voxel-based particle simulation (debug/development)
-        MetaballSPH = 7,         // SPH metaball physics with density field rendering
-        DXR12Test = 8,          // DXR 1.2 feature testing (SER, OMM, clean pipeline validation)
-        AccretionMeshParticles = 9  // NASA-quality accretion disk with 100K mesh shader particles
+        MetaballSPH = 7          // SPH metaball physics with density field rendering
     };
     DemoMode m_demoMode = DemoMode::SphereRT;
-
-    // Mode 9 sub-modes: RT technique testing
-    enum class Mode9SubMode {
-        Baseline = 0,        // Pure mesh particles, no RT
-        ShadowMap = 1,       // DXR shadow map to separate texture
-        ParticleRelight = 2, // Apply shadow map to particles
-        SelfShadow = 3,      // RayQuery inline self-shadowing
-        OMM = 4,             // Opacity Micromap testing
-        SER = 5,             // Full DXR 1.2 with SER
-        Recording = 6        // Offline quality with accumulation
-    };
-    Mode9SubMode m_mode9SubMode = Mode9SubMode::Baseline;
-    uint32_t m_mode9ParticleCount = 100000;  // Runtime adjustable (10K-500K)
 
     // Plasma Accretion Disk physics controls (Mode 5)
     float m_plasmaAngularVel = 0.8f;      // Angular velocity multiplier (0.1-2.0)
@@ -275,9 +248,6 @@ private:
 	// Metaballs (lava lamp)
 	std::unique_ptr<MetaballSystem> m_metaballSystem;
 
-	// Mesh shader particle system (Mode 9)
-	std::unique_ptr<ParticleSystem> m_meshParticleSystem;
-
 	// Voxel particle system (Mode 6)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelDensityTexture;     // 3D texture for particle density
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_voxelVelocityTexture;    // 3D texture for velocity field
@@ -300,7 +270,6 @@ private:
 	bool m_quitOnRemoval = true;
 
 	// DXR methods
-	bool initializeDXRCore();
 	bool initializeDXR();
 	void createDXRPipeline();
 	void buildAccelerationStructures();
@@ -310,17 +279,6 @@ private:
 	// HDR output methods (DXR_0018)
 	bool createHDRTexture();
 	void recreateHDRTexture();
-
-	// Mode 9.1: Shadow map methods (RayQuery compute shader)
-	bool createShadowMapTexture();
-	bool createShadowComputePipeline();
-	void renderShadowMap();
-
-	// Mode 9.2: Emission buffer for particle lighting
-	bool createEmissionTexture();
-	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionTexture;
-	D3D12_CPU_DESCRIPTOR_HANDLE m_emissionRtvHandle = {};
-	UINT m_emissionSrvIndex = UINT_MAX;
 
 	// Voxel particle system methods (Mode 6)
 	bool initializeVoxelSystem();

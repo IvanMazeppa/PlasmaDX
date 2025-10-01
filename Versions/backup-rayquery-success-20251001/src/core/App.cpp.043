@@ -14,7 +14,6 @@
 #include "../volumetric/DensityVolume.h"
 #include "../volumetric/RayMarcher.h"
 #include "../volumetric/MetaballSystem.h"
-#include "../particles/ParticleSystem.h"
 #include <d3dcompiler.h>
 #include <fstream>
 #include <vector>
@@ -95,25 +94,6 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 
-		case VK_F7:  // Cycle Mode 9 sub-modes (RT technique testing)
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
-				int currentSubMode = static_cast<int>(g_appInstance->m_mode9SubMode);
-				currentSubMode = (currentSubMode + 1) % 7;  // 0-6 sub-modes
-				g_appInstance->m_mode9SubMode = static_cast<App::Mode9SubMode>(currentSubMode);
-
-				const char* subModeNames[] = {
-					"Baseline (No RT)",
-					"Shadow Map (DXR)",
-					"Particle Relight (Screen-space)",
-					"Self-Shadow (RayQuery)",
-					"OMM (Opacity Micromap)",
-					"SER (DXR 1.2 Optimized)",
-					"Recording (Offline Quality)"
-				};
-				LOGI(std::string("Mode 9 Sub-mode: ") + subModeNames[currentSubMode]);
-			}
-			break;
-
 		case 'F':  // Toggle torchlight attach/detach (only in torchlight demo mode)
 			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 				g_appInstance->m_torchAttached = !g_appInstance->m_torchAttached;
@@ -121,13 +101,8 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 
-		case 'C':  // Mode 9: Cycle constraints OR Torchlight: colors OR Raymarcher: colors
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				// Mode 9: Cycle constraint shape
-				g_appInstance->m_meshParticleSystem->CycleConstraintShape();
-				LOGI("Constraint shape cycled");
-			}
-			else if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
+		case 'C':  // Cycle light colors (torchlight demo mode) OR ray marcher colors
+			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 				// Torchlight demo mode: cycle colors for torchlight
 				g_appInstance->m_lightColorIndex = (g_appInstance->m_lightColorIndex + 1) % 5;
 				const char* colors[] = {"Warm torch", "Cool blue", "Red", "Green", "Purple"};
@@ -149,32 +124,20 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Color mode " + std::to_string(colorMode) + " selected");
 			}
 			break;
-		case 'B':  // Mode 9: Increase angular momentum OR Toggle DXR blend
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustAngularMomentum(0.1f);
-				LOGI("Angular momentum increased");
-			}
-			else if (g_appInstance) {
+		case 'B':  // Toggle DXR additive blend over compute HDR
+			if (g_appInstance) {
 				g_appInstance->m_dxrBlend = !g_appInstance->m_dxrBlend;
 				LOGI(g_appInstance->m_dxrBlend ? "DXR blend ENABLED (additive)" : "DXR blend DISABLED");
 			}
 			break;
-		case 'N':  // Mode 9: Decrease particle size OR DXR blend scale down
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustParticleSize(-0.5f);
-				LOGI("Particle size decreased");
-			}
-			else if (g_appInstance) {
+		case 'N':  // Adjust DXR blend scale down
+			if (g_appInstance) {
 				g_appInstance->m_dxrBlendScale = std::max(0.1f, g_appInstance->m_dxrBlendScale - 0.1f);
 				LOGI("DXR blend scale: " + std::to_string(g_appInstance->m_dxrBlendScale));
 			}
 			break;
-		case 'M':  // Mode 9: Increase particle size OR DXR blend scale up
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustParticleSize(0.5f);
-				LOGI("Particle size increased");
-			}
-			else if (g_appInstance) {
+		case 'M':  // Adjust DXR blend scale up
+			if (g_appInstance) {
 				g_appInstance->m_dxrBlendScale = std::min(2.0f, g_appInstance->m_dxrBlendScale + 0.1f);
 				LOGI("DXR blend scale: " + std::to_string(g_appInstance->m_dxrBlendScale));
 			}
@@ -240,21 +203,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		// Camera movement controls (WASD + QE)
 		case 'W': case 'A': case 'S': case 'D': case 'Q': case 'E':
 			if (g_appInstance && g_appInstance->m_camera) {
-				// Check if Ctrl is pressed for rotation mode
-				bool ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-				if (ctrlPressed) {
-					// Ctrl+WASD: Camera rotation
-					constexpr float ROTATE_SPEED = 0.05f;
-					switch (wParam) {
-						case 'A': g_appInstance->m_camera->RotateYaw(-ROTATE_SPEED); break;   // Turn left
-						case 'D': g_appInstance->m_camera->RotateYaw(ROTATE_SPEED); break;    // Turn right
-						case 'W': g_appInstance->m_camera->RotatePitch(ROTATE_SPEED); break;  // Tilt up
-						case 'S': g_appInstance->m_camera->RotatePitch(-ROTATE_SPEED); break; // Tilt down
-					}
-				} else {
-					// Normal WASD: Camera movement
-					g_appInstance->m_camera->SetKeyState((char)wParam, true);
-				}
+				g_appInstance->m_camera->SetKeyState((char)wParam, true);
 			}
 			break;
 
@@ -271,42 +220,26 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Plasma Angular Velocity: " + std::to_string(g_appInstance->m_plasmaAngularVel));
 			}
 			break;
-		case VK_DOWN:  // Mode 9: Decrease particle count OR Mode 5: Decrease density
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
-				g_appInstance->m_mode9ParticleCount = std::max(10000u, g_appInstance->m_mode9ParticleCount - 10000);
-				LOGI("Mode 9 Particle Count: " + std::to_string(g_appInstance->m_mode9ParticleCount) + " (restart required)");
-			}
-			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_DOWN:  // Decrease particle density
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaDensity = std::max(0.5f, g_appInstance->m_plasmaDensity - 0.1f);
 				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
 			}
 			break;
-		case VK_UP:    // Mode 9: Increase particle count OR Mode 5: Increase density
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
-				g_appInstance->m_mode9ParticleCount = std::min(500000u, g_appInstance->m_mode9ParticleCount + 10000);
-				LOGI("Mode 9 Particle Count: " + std::to_string(g_appInstance->m_mode9ParticleCount) + " (restart required)");
-			}
-			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_UP:    // Increase particle density
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaDensity = std::min(3.0f, g_appInstance->m_plasmaDensity + 0.1f);
 				LOGI("Plasma Density: " + std::to_string(g_appInstance->m_plasmaDensity));
 			}
 			break;
-		case VK_OEM_4: // [ key - Mode 9: Decrease color scale OR Mode 5: Decrease gravity
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustColorTempScale(-0.1f);
-				LOGI("Color temperature scale decreased");
-			}
-			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_OEM_4: // [ key - Decrease gravity strength
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaGravityExp = std::max(0.5f, g_appInstance->m_plasmaGravityExp - 0.1f);
 				LOGI("Plasma Gravity Exponent: " + std::to_string(g_appInstance->m_plasmaGravityExp));
 			}
 			break;
-		case VK_OEM_6: // ] key - Mode 9: Increase color scale OR Mode 5: Increase gravity
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustColorTempScale(0.1f);
-				LOGI("Color temperature scale increased");
-			}
-			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
+		case VK_OEM_6: // ] key - Increase gravity strength
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaGravityExp = std::min(2.5f, g_appInstance->m_plasmaGravityExp + 0.1f);
 				LOGI("Plasma Gravity Exponent: " + std::to_string(g_appInstance->m_plasmaGravityExp));
 			}
@@ -347,7 +280,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				LOGI("Plasma Disk Thickness: " + std::to_string(g_appInstance->m_plasmaDiskThickness));
 			}
 			break;
-		case 'R':  // Reset parameters to defaults
+		case 'R':  // Reset plasma parameters to defaults
 			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::PlasmaAccretion) {
 				g_appInstance->m_plasmaAngularVel = 0.8f;
 				g_appInstance->m_plasmaGravityExp = 1.5f;
@@ -362,68 +295,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				g_appInstance->m_plasmaOffsetZ = 0.0f;
 				LOGI("Plasma parameters reset to defaults");
 			}
-			else if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->ResetParticles();
-				LOGI("Particles reset!");
-			}
 			break;
-
-		// MODE 9: Mesh Particle System Controls (AccretionMeshParticles)
-		case 'G':  // Decrease gravity
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustGravity(-50.0f);
-				LOGI("Gravity decreased");
-			}
-			break;
-		case 'H':  // Increase gravity
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustGravity(50.0f);
-				LOGI("Gravity increased");
-			}
-			break;
-		case 'J':  // Decrease turbulence
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustTurbulence(-1.0f);
-				LOGI("Turbulence decreased");
-			}
-			break;
-		case 'K':  // Increase turbulence
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustTurbulence(1.0f);
-				LOGI("Turbulence increased");
-			}
-			break;
-		case 'Z':  // Decrease damping
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustDamping(-0.01f);
-				LOGI("Damping decreased");
-			}
-			break;
-		case 'X':  // Increase damping
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustDamping(0.01f);
-				LOGI("Damping increased");
-			}
-			break;
-		case 'V':  // Decrease angular momentum
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustAngularMomentum(-0.1f);
-				LOGI("Angular momentum decreased");
-			}
-			break;
-		case VK_OEM_COMMA:  // , key: Decrease color temperature offset
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustColorTempOffset(-100.0f);
-				LOGI("Color temperature offset decreased");
-			}
-			break;
-		case VK_OEM_PERIOD:  // . key: Increase color temperature offset
-			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles && g_appInstance->m_meshParticleSystem) {
-				g_appInstance->m_meshParticleSystem->AdjustColorTempOffset(100.0f);
-				LOGI("Color temperature offset increased");
-			}
-			break;
-		// Note: 'C' key handled earlier with torchlight demo mode
 		}
 	}
 
@@ -435,7 +307,7 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 	}
 
-	// Mouse input handling with Ctrl modifier
+	// Mouse input handling
 	static bool mouseCapturing = false;
 	static POINT lastMousePos = {0, 0};
 
@@ -444,26 +316,19 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			// Torchlight mode: LMB turns torch on
 			g_appInstance->m_torchOn = true;
 		}
+		SetCapture(hWnd);
+		mouseCapturing = true;
+		GetCursorPos(&lastMousePos);
 	}
 	else if (msg == WM_LBUTTONUP) {
 		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 			// Torchlight mode: LMB release turns torch off
 			g_appInstance->m_torchOn = false;
 		}
+		ReleaseCapture();
+		mouseCapturing = false;
 	}
 	else if (msg == WM_MOUSEMOVE) {
-		static int s_mouseMoveCount = 0;
-		if (s_mouseMoveCount < 3) {
-			LOGI("WM_MOUSEMOVE received #" + std::to_string(s_mouseMoveCount));
-			s_mouseMoveCount++;
-		}
-
-		// Check if Ctrl key is pressed
-		bool ctrlPressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-		if (s_mouseMoveCount < 3) {
-			LOGI("Ctrl pressed: " + std::string(ctrlPressed ? "YES" : "NO"));
-		}
-
 		if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 			// Torchlight mode: track mouse position for light direction
 			RECT clientRect;
@@ -472,40 +337,17 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			g_appInstance->m_mouseX = float(mousePos.x) / float(clientRect.right);
 			g_appInstance->m_mouseY = float(mousePos.y) / float(clientRect.bottom);
 		}
-		else if (ctrlPressed && g_appInstance && g_appInstance->m_camera) {
-			// Ctrl+Mouse drag for camera control
-			if (!mouseCapturing) {
-				// Start capturing
-				mouseCapturing = true;
-				GetCursorPos(&lastMousePos);
-				SetCapture(hWnd);
-				ShowCursor(FALSE);
-				LOGI("Ctrl+Mouse: Camera control started");
-			} else {
-				// Continue capturing
-				POINT currentMousePos;
-				GetCursorPos(&currentMousePos);
+		else if (mouseCapturing && g_appInstance && g_appInstance->m_camera) {
+			POINT currentMousePos;
+			GetCursorPos(&currentMousePos);
 
-				int deltaX = currentMousePos.x - lastMousePos.x;
-				int deltaY = currentMousePos.y - lastMousePos.y;
+			int deltaX = currentMousePos.x - lastMousePos.x;
+			int deltaY = currentMousePos.y - lastMousePos.y;
 
-				if (deltaX != 0 || deltaY != 0) {
-					static int s_mouseLogCount = 0;
-					if (s_mouseLogCount < 5) {
-						LOGI("Mouse move: deltaX=" + std::to_string(deltaX) + " deltaY=" + std::to_string(deltaY));
-						s_mouseLogCount++;
-					}
-					g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
-					SetCursorPos(lastMousePos.x, lastMousePos.y);
-				}
-			}
-		}
-		else if (mouseCapturing) {
-			// Ctrl released - stop capturing
-			mouseCapturing = false;
-			ReleaseCapture();
-			ShowCursor(TRUE);
-			LOGI("Ctrl+Mouse: Camera control stopped");
+			// Pass mouse delta to camera for orbit/rotation
+			g_appInstance->m_camera->OnMouseMove(deltaX, deltaY);
+
+			lastMousePos = currentMousePos;
 		}
 	}
 	else if (msg == WM_MOUSEWHEEL && g_appInstance) {
@@ -610,11 +452,10 @@ bool App::initialize(HINSTANCE hInstance, int nCmdShow) {
 		LOGE("Failed to create command objects");
 		return false;
 	}
-	// Initialize DXR pipeline (confirmed working from step-by-step tests)
 	if (m_dxrSupported) {
 		try {
-			if (!initializeDXRCore()) {
-				LOGW("DXR core initialization failed, falling back to rasterization");
+			if (!initializeDXR()) {
+				LOGW("DXR initialization failed, falling back to rasterization");
 				m_dxrSupported = false;
 			}
 		} catch (const std::exception& e) {
@@ -663,19 +504,8 @@ int App::run() {
             double fps = frames / acc;
             wchar_t title[256];
 
-            // Mode 9: Show sub-mode and particle count
-            if (m_demoMode == DemoMode::AccretionMeshParticles) {
-                const wchar_t* subModeNames[] = {
-                    L"Baseline", L"ShadowMap", L"Relight", L"SelfShadow", L"OMM", L"SER", L"Recording"
-                };
-                swprintf_s(title, L"PlasmaDX - Mode 9.%d (%s) [%.1f FPS] [%uK particles]",
-                          static_cast<int>(m_mode9SubMode),
-                          subModeNames[static_cast<int>(m_mode9SubMode)],
-                          fps,
-                          m_mode9ParticleCount / 1000);
-            }
             // Include SER status in title if available
-            else if (m_dxrFeatures.shaderExecutionReordering) {
+            if (m_dxrFeatures.shaderExecutionReordering) {
                 swprintf_s(title, L"PlasmaDX - DXR %s [%.1f FPS] [SER: %s]",
                           m_dxrFeatures.raytracingTier >= D3D12_RAYTRACING_TIER_1_1 ? L"1.1+" : L"1.0",
                           fps,
@@ -1135,17 +965,8 @@ void App::checkDXRSupport() {
 }
 
 bool App::createSwapchain() {
-	LOGI("Creating swapchain...");
-
-	LOGI("Creating command queue...");
 	D3D12_COMMAND_QUEUE_DESC qdesc{}; qdesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-	if (FAILED(m_device->CreateCommandQueue(&qdesc, IID_PPV_ARGS(&m_queue)))) {
-		LOGE("Failed to create command queue");
-		return false;
-	}
-	LOGI("Command queue created successfully");
-
-	LOGI("Creating DXGI swapchain...");
+	if (FAILED(m_device->CreateCommandQueue(&qdesc, IID_PPV_ARGS(&m_queue)))) return false;
 	DXGI_SWAP_CHAIN_DESC1 scd{};
 	scd.BufferCount = kBackBufferCount;
 	scd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1154,107 +975,24 @@ bool App::createSwapchain() {
 	scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	scd.Width = m_width; scd.Height = m_height;
 	ComPtr<IDXGISwapChain1> temp;
-	if (FAILED(m_factory->CreateSwapChainForHwnd(m_queue.Get(), m_hwnd, &scd, nullptr, nullptr, &temp))) {
-		LOGE("Failed to create DXGI swapchain");
-		return false;
-	}
-	LOGI("DXGI swapchain created successfully");
-
-	LOGI("Converting to IDXGISwapChain4...");
-	if (FAILED(temp.As(&m_swapchain))) {
-		LOGE("Failed to convert to IDXGISwapChain4");
-		return false;
-	}
-	LOGI("Swapchain conversion successful");
-
+	if (FAILED(m_factory->CreateSwapChainForHwnd(m_queue.Get(), m_hwnd, &scd, nullptr, nullptr, &temp))) return false;
+	if (FAILED(temp.As(&m_swapchain))) return false;
 	m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
-	LOGI("Swapchain created successfully with frame index: " + std::to_string(m_frameIndex));
-	return true;
-}
-
-// Test function to check if RTV creation would work
-bool App::testRTVCreation() {
-	LOGI("Testing RTV descriptor heap creation...");
-
-	ComPtr<ID3D12DescriptorHeap> testRtvHeap;
-	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-	rtvDesc.NumDescriptors = 2;
-	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvDesc.NodeMask = 0;
-
-	HRESULT hr = m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&testRtvHeap));
-	if (FAILED(hr)) {
-		LOGE("Test RTV descriptor heap creation failed, HRESULT: 0x" + std::to_string(hr));
-		return false;
-	}
-	LOGI("Test RTV descriptor heap creation succeeded");
 	return true;
 }
 
 bool App::createRTVs() {
-	LOGI("Creating RTVs...");
-
-	// Check if we already have an RTV heap (shouldn't happen but let's be safe)
-	if (m_rtvHeap) {
-		LOGW("RTV heap already exists, releasing it first");
-		m_rtvHeap.Reset();
-	}
-
-	// Mode 9.2: Need extra RTV for emission texture (indices 0,1=backbuffers, 2=emission)
-	const UINT numRTVs = kBackBufferCount + 1;  // 2 backbuffers + 1 emission = 3
-	LOGI("Creating RTV descriptor heap with " + std::to_string(numRTVs) + " descriptors");
 	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
-	rtvDesc.NumDescriptors = numRTVs;
+	rtvDesc.NumDescriptors = kBackBufferCount;
 	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvDesc.NodeMask = 0;
-
-	HRESULT hr = m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap));
-	if (FAILED(hr)) {
-		LOGE("Failed to create RTV descriptor heap, HRESULT: 0x" + std::to_string(hr));
-		LOGE("Device state check - device valid: " + std::string(m_device ? "YES" : "NO"));
-		LOGE("Requested descriptors: " + std::to_string(kBackBufferCount));
-		return false;
-	}
-	LOGI("RTV descriptor heap created successfully");
-
+	if (FAILED(m_device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_rtvHeap)))) return false;
 	m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	LOGI("RTV descriptor size: " + std::to_string(m_rtvDescriptorSize));
-
 	D3D12_CPU_DESCRIPTOR_HANDLE start = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-	LOGI("RTV heap start handle: " + std::to_string(start.ptr));
-
 	for (UINT i = 0; i < kBackBufferCount; ++i) {
-		LOGI("Getting backbuffer " + std::to_string(i) + "...");
-		if (FAILED(m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_backbuffers[i])))) {
-			LOGE("Failed to get backbuffer " + std::to_string(i));
-			return false;
-		}
-		LOGI("Backbuffer " + std::to_string(i) + " retrieved successfully");
-
-		D3D12_CPU_DESCRIPTOR_HANDLE dst = start;
-		dst.ptr += SIZE_T(i) * SIZE_T(m_rtvDescriptorSize);
-		LOGI("Creating RTV " + std::to_string(i) + " at handle: " + std::to_string(dst.ptr));
+		if (FAILED(m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_backbuffers[i])))) return false;
+		D3D12_CPU_DESCRIPTOR_HANDLE dst = start; dst.ptr += SIZE_T(i) * SIZE_T(m_rtvDescriptorSize);
 		m_device->CreateRenderTargetView(m_backbuffers[i].Get(), nullptr, dst);
-		LOGI("RTV " + std::to_string(i) + " created successfully");
 	}
-
-	// Mode 9.2: Create emission texture RTV if emission texture exists
-	if (m_emissionTexture) {
-		D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
-		rtvDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;
-		rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-		rtvDesc.Texture2D.MipSlice = 0;
-
-		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = start;
-		rtvHandle.ptr += SIZE_T(2) * SIZE_T(m_rtvDescriptorSize);  // Index 2 (after 2 backbuffers)
-		m_emissionRtvHandle = rtvHandle;
-		m_device->CreateRenderTargetView(m_emissionTexture.Get(), &rtvDesc, m_emissionRtvHandle);
-		LOGI("Emission RTV created at index 2");
-	}
-
-	LOGI("All RTVs created successfully");
 	return true;
 }
 
@@ -1563,140 +1301,6 @@ void App::cleanup() {
 #endif
 }
 
-bool App::initializeDXRCore() {
-	LOGI("Initializing DXR core (without volumetric systems)...");
-
-	// Check if DXR is actually supported
-	if (m_dxrTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) {
-		LOGW("DXR not supported on this device");
-		return false;
-	}
-
-	// Create AS builder
-	try {
-		m_asBuilder = std::make_unique<ASBuilder>(m_device.Get());
-	} catch (const std::exception& e) {
-		LOGE(std::string("Failed to create AS builder: ") + e.what());
-		return false;
-	}
-
-	// Create descriptor heap allocator
-	m_descriptorAllocator = std::make_unique<DescriptorHeap>(
-		m_device.Get(),
-		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-		64,  // Capacity
-		true // Shader visible
-	);
-
-	if (!m_descriptorAllocator->Initialize()) {
-		LOGE("Failed to initialize descriptor heap allocator");
-		return false;
-	}
-
-	// Keep reference to underlying heap for compatibility
-	m_srvUavHeap = m_descriptorAllocator->GetHeap();
-
-	// NOTE: buildAccelerationStructures() moved to after particle system initialization
-	// (see line ~1636 in mode 9 case) because particle BLAS requires particle buffer to exist
-
-	// Create DXR pipeline
-	createDXRPipeline();
-
-	// Create shader binding table
-	createShaderBindingTable();
-
-	// Initialize Camera and Composite (these work fine)
-	m_camera = std::make_unique<Camera>();
-	m_camera->Initialize(float(m_width) / float(m_height));
-	m_camera->CreateConstantBuffer(m_device.Get());
-
-	m_composite = std::make_unique<Composite>(m_device.Get());
-	m_composite->Initialize();
-
-	createHDRTexture();
-
-	// Demo mode selection (safe modes only - no volumetrics in initializeDXRCore)
-	int debugMode = Env::GetInt("PLASMADX_DEBUG_MODE", 8); // Default to DXR12Test
-	switch (debugMode) {
-		case 1:
-			m_demoMode = DemoMode::SphereRT;
-			LOGI("Demo Mode: Sphere RT (Pure DXR baseline)");
-			break;
-		case 2:
-			m_demoMode = DemoMode::TorchlightDemo;
-			LOGI("Demo Mode: Torchlight Demo (Interactive)");
-			break;
-		case 8:
-			m_demoMode = DemoMode::DXR12Test;
-			LOGI("Demo Mode: DXR 1.2 Test");
-			break;
-		case 9:
-			// Mode 9: Mesh shader particle system (isolated, no volumetrics)
-			m_demoMode = DemoMode::AccretionMeshParticles;
-			LOGI("Demo Mode: Accretion Mesh Particles (NASA-quality 100K particle system)");
-			try {
-				m_meshParticleSystem = std::make_unique<ParticleSystem>();
-				if (!m_meshParticleSystem->Initialize(m_device.Get(), 100000)) {
-					LOGE("Failed to initialize mesh particle system - falling back to DXR12Test");
-					m_meshParticleSystem.reset();
-					m_demoMode = DemoMode::DXR12Test;
-				} else {
-					LOGI("Mesh particle system initialized successfully (100K particles)");
-
-					// Mode 9.1+: Build particle BLAS for self-shadowing (MUST come before shadow map setup)
-					buildAccelerationStructures();
-
-					// Mode 9.1+: Create shadow map texture and pipeline for RT lighting
-					if (!createShadowMapTexture()) {
-						LOGW("Failed to create shadow map texture - Mode 9.1+ will not work");
-					} else if (!createShadowComputePipeline()) {
-						LOGW("Failed to create shadow compute pipeline - Mode 9.1+ will not work");
-					} else {
-						LOGI("Mode 9 RT lighting ready (shadow map + RayQuery compute pipeline initialized)");
-					}
-
-					// Mode 9.2+: Create emission texture for particle lighting
-					if (!createEmissionTexture()) {
-						LOGW("Failed to create emission texture - Mode 9.2+ will not work");
-					} else {
-						LOGI("Mode 9.2 emission buffer ready");
-					}
-				}
-			} catch (const std::exception& e) {
-				LOGE(std::string("Mesh particle system initialization threw exception: ") + e.what());
-				m_meshParticleSystem.reset();
-				m_demoMode = DemoMode::DXR12Test;
-			}
-			break;
-		default:
-			m_demoMode = DemoMode::DXR12Test;
-			LOGI("Demo Mode: Default DXR 1.2 Test");
-			break;
-	}
-
-	// Create SRV descriptors for DXR descriptor table binding
-	if (m_tlasSrvIndex == UINT_MAX) {
-		m_tlasSrvIndex = m_descriptorAllocator->Allocate();
-		if (m_tlasSrvIndex == UINT_MAX) {
-			LOGE("Failed to allocate SRV index for TLAS");
-			return false;
-		}
-	}
-
-	// Create TLAS SRV (for descriptor table binding)
-	D3D12_SHADER_RESOURCE_VIEW_DESC tlasSrvDesc = {};
-	tlasSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
-	tlasSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
-	tlasSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	tlasSrvDesc.RaytracingAccelerationStructure.Location = m_tlasResult->GetGPUVirtualAddress();
-
-	D3D12_CPU_DESCRIPTOR_HANDLE tlasSrvHandle = m_descriptorAllocator->GetCPUHandle(m_tlasSrvIndex);
-	m_device->CreateShaderResourceView(nullptr, &tlasSrvDesc, tlasSrvHandle);
-
-	LOGI("DXR core initialized successfully - ready for DXR 1.2 testing");
-	return true;
-}
-
 bool App::initializeDXR() {
 	LOGI("Initializing DXR...");
 
@@ -1861,9 +1465,9 @@ void App::buildAccelerationStructures() {
 
 	PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Acceleration Structures");
 
-	// Build BLAS for debug triangle (temporary - conservative AABB causes 100% shadow)
+	// Build BLAS for triangle
 	{
-		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Triangle BLAS");
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build BLAS");
 		if (!m_asBuilder->CreateTriangleBLAS(m_blasResult, m_blasScratch)) {
 			LOGE("Failed to create triangle BLAS");
 			return;
@@ -2164,118 +1768,6 @@ void App::renderFrameDXR() {
 			// With GPT-5's viewport/scissor fix, this should now be visible
 		}
 
-		// MODE 9: Mesh shader particle rendering (isolated path, no volumetrics)
-		if (m_demoMode == DemoMode::AccretionMeshParticles && m_meshParticleSystem) {
-			PIX_SCOPED_EVENT(m_cmdList.Get(), "Mesh Particle System");
-
-			static bool s_firstFrame = true;
-			if (s_firstFrame) {
-				LOGI("MODE 9: Starting mesh particle render loop");
-
-				// Position camera to view accretion disk from above and behind
-				// Disk is in XZ plane (Y=0), radius 6-100 units
-				// Place camera at (0, 80, -120) looking toward origin
-				if (m_camera) {
-					// We need to manually set camera position/rotation
-					// For now, just log that we're using default camera
-					LOGI("MODE 9: Camera viewing accretion disk from elevated position");
-				}
-				s_firstFrame = false;
-			}
-
-			// Update camera with deltaTime for smooth movement
-			static float totalTime = 0.0f;
-			const float deltaTime = 0.016f; // ~60 FPS
-			totalTime += deltaTime;
-
-			if (m_camera) {
-				m_camera->Update(deltaTime);
-			}
-
-			try {
-				// Update particle physics (accretion disk simulation)
-				m_meshParticleSystem->UpdatePhysics(m_cmdList.Get(), deltaTime);
-
-				// Mode 9.1+: Generate shadow map before particle rendering (RayQuery compute shader)
-				if (m_mode9SubMode >= Mode9SubMode::ShadowMap) {
-					renderShadowMap();  // Runs on main command list, no fence wait needed
-				}
-
-				// Get current backbuffer for direct rendering
-				m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
-				auto backbuffer = m_backbuffers[m_frameIndex];
-
-				static int s_frameCount = 0;
-				if (s_frameCount < 3) {
-					LOGI("MODE 9: Rendering frame " + std::to_string(s_frameCount) + " to backbuffer " + std::to_string(m_frameIndex));
-					s_frameCount++;
-				}
-
-				// Transition backbuffer to render target
-				D3D12_RESOURCE_BARRIER toRTV{};
-				toRTV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-				toRTV.Transition.pResource = backbuffer.Get();
-				toRTV.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-				toRTV.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-				toRTV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-				m_cmdList->ResourceBarrier(1, &toRTV);
-
-				// Get RTV handle for backbuffer
-				D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-				rtvHandle.ptr += m_frameIndex * m_rtvDescriptorSize;
-
-				// Clear backbuffer to black
-				float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-				m_cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-
-				// Render particles with mesh shaders
-				DirectX::XMMATRIX viewMatrix = m_camera->GetViewMatrix();
-				DirectX::XMMATRIX projMatrix = m_camera->GetProjectionMatrix();
-				DirectX::XMFLOAT3 cameraPos = m_camera->GetPosition();
-
-				// Bind descriptor heap for shadow map SRV (required for descriptor table access)
-				ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
-				m_cmdList->SetDescriptorHeaps(1, heaps);
-
-				// Get shadow map GPU handle for Mode 9.1+
-				D3D12_GPU_DESCRIPTOR_HANDLE shadowMapGpuHandle = {};
-				if (m_shadowMapSrvIndex != UINT_MAX) {
-					shadowMapGpuHandle = m_descriptorAllocator->GetGPUHandle(m_shadowMapSrvIndex);
-				}
-
-				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
-					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
-					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode),
-					m_emissionRtvHandle);  // Mode 9.2: Pass emission RTV for dual RT output
-
-				// Transition backbuffer back to present
-				D3D12_RESOURCE_BARRIER toPresent{};
-				toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-				toPresent.Transition.pResource = backbuffer.Get();
-				toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-				toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-				toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-				m_cmdList->ResourceBarrier(1, &toPresent);
-
-				wroteHDRThisFrame = true; // Mark that we rendered something
-
-			} catch (const std::exception& e) {
-				LOGE(std::string("Mesh particle rendering failed: ") + e.what());
-			}
-
-			// Skip DXR and composite for Mode 9 - go straight to present
-			m_cmdList->Close();
-			ID3D12CommandList* lists[] = { m_cmdList.Get() };
-			m_queue->ExecuteCommandLists(1, lists);
-
-			// Present (PIX event can't be used after Close())
-			m_swapchain->Present(1, 0);
-
-			m_frameFenceValues[m_frameIndex] = ++m_fenceValue;
-			m_queue->Signal(m_fence.Get(), m_fenceValue);
-			return; // Early return for Mode 9 - skip normal DXR/composite path
-		}
-
 		// HDR Pipeline: Render to HDR texture then composite to backbuffer
 		{
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "HDR Content Generation");
@@ -2322,16 +1814,10 @@ void App::renderFrameDXR() {
                     m_cmdList->SetPipelineState1(m_dxrPipeline->GetPSO());
                     m_cmdList->SetComputeRootSignature(m_globalRootSignature.Get());
 
-                    // Bind SRV descriptor table - check for DXR12Test mode
-                    if (m_demoMode == DemoMode::DXR12Test) {
-                        LOGI("DXR: Binding TLAS only (DXR12Test mode)");
-                        D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
-                        m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
-                    } else {
-                        LOGI("DXR: Binding SRV descriptor table (TLAS + density volume)");
-                        D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
-                        m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
-                    }
+                    // Bind SRV descriptor table (TLAS + density volume)
+                    LOGI("DXR: Binding SRV descriptor table (TLAS + density volume)");
+                    D3D12_GPU_DESCRIPTOR_HANDLE srvTableHandle = m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex);
+                    m_cmdList->SetComputeRootDescriptorTable(0, srvTableHandle);
                     // Ensure HDR UAV is in UAV state before binding
                     if (m_hdrIsInSRVForRead) {
                         D3D12_RESOURCE_BARRIER toUAV{};
@@ -2821,339 +2307,6 @@ void App::recreateHDRTexture() {
 
     // Recreate with new size
     createHDRTexture();
-}
-
-// MODE 9.1: Shadow Map Implementation
-// Insert this into App.cpp before VOXEL PARTICLE SYSTEM section
-
-bool App::createShadowMapTexture() {
-    // Create shadow map texture (R16_FLOAT, 1024x1024) for Mode 9.1
-    // This is a dedicated resource that avoids the HDR texture driver bug
-    constexpr UINT SHADOW_MAP_SIZE = 1024;
-
-    D3D12_RESOURCE_DESC texDesc = {};
-    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    texDesc.Width = SHADOW_MAP_SIZE;
-    texDesc.Height = SHADOW_MAP_SIZE;
-    texDesc.DepthOrArraySize = 1;
-    texDesc.MipLevels = 1;
-    texDesc.Format = DXGI_FORMAT_R16_FLOAT;  // Single channel for shadow visibility
-    texDesc.SampleDesc.Count = 1;
-    texDesc.SampleDesc.Quality = 0;
-    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    HRESULT hr = m_device->CreateCommittedResource(
-        &heapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &texDesc,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        nullptr,
-        IID_PPV_ARGS(&m_shadowMapTexture));
-
-    if (FAILED(hr)) {
-        LOGE("Failed to create shadow map texture: 0x" + std::to_string(static_cast<uint32_t>(hr)));
-        return false;
-    }
-
-    // Allocate descriptor indices
-    if (m_shadowMapSrvIndex == UINT_MAX) {
-        m_shadowMapSrvIndex = m_descriptorAllocator->Allocate();
-        if (m_shadowMapSrvIndex == UINT_MAX) {
-            LOGE("Failed to allocate SRV index for shadow map");
-            return false;
-        }
-    }
-
-    if (m_shadowMapUavIndex == UINT_MAX) {
-        m_shadowMapUavIndex = m_descriptorAllocator->Allocate();
-        if (m_shadowMapUavIndex == UINT_MAX) {
-            LOGE("Failed to allocate UAV index for shadow map");
-            return false;
-        }
-    }
-
-    // Create SRV for shadow map (for particle pixel shader sampling)
-    if (m_descriptorAllocator) {
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = DXGI_FORMAT_R16_FLOAT;
-        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Texture2D.MipLevels = 1;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_descriptorAllocator->GetCPUHandle(m_shadowMapSrvIndex);
-        m_device->CreateShaderResourceView(m_shadowMapTexture.Get(), &srvDesc, srvHandle);
-    }
-
-    // Create UAV for shadow map (for DXR raygen write)
-    if (m_descriptorAllocator) {
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-        uavDesc.Format = DXGI_FORMAT_R16_FLOAT;
-        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        uavDesc.Texture2D.MipSlice = 0;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE uavHandle = m_descriptorAllocator->GetCPUHandle(m_shadowMapUavIndex);
-        m_device->CreateUnorderedAccessView(m_shadowMapTexture.Get(), nullptr, &uavDesc, uavHandle);
-    }
-
-    LOGI("Shadow map texture created (1024x1024 R16) - SRV[" + std::to_string(m_shadowMapSrvIndex) + "] UAV[" + std::to_string(m_shadowMapUavIndex) + "]");
-    return true;
-}
-
-bool App::createEmissionTexture() {
-    // Create emission texture (R11G11B10_FLOAT, screen resolution) for Mode 9.2
-    // Stores emissive light from hot particles (T > 15000K)
-
-    D3D12_RESOURCE_DESC texDesc = {};
-    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    texDesc.Width = m_width;
-    texDesc.Height = m_height;
-    texDesc.DepthOrArraySize = 1;
-    texDesc.MipLevels = 1;
-    texDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;  // HDR format, no alpha needed
-    texDesc.SampleDesc.Count = 1;
-    texDesc.SampleDesc.Quality = 0;
-    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
-    D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-
-    D3D12_CLEAR_VALUE clearValue = {};
-    clearValue.Format = DXGI_FORMAT_R11G11B10_FLOAT;
-    clearValue.Color[0] = 0.0f;
-    clearValue.Color[1] = 0.0f;
-    clearValue.Color[2] = 0.0f;
-    clearValue.Color[3] = 1.0f;
-
-    HRESULT hr = m_device->CreateCommittedResource(
-        &heapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &texDesc,
-        D3D12_RESOURCE_STATE_RENDER_TARGET,
-        &clearValue,
-        IID_PPV_ARGS(&m_emissionTexture));
-
-    if (FAILED(hr)) {
-        LOGE("Failed to create emission texture: 0x" + std::to_string(static_cast<uint32_t>(hr)));
-        return false;
-    }
-
-    // NOTE: RTV will be created later in createRTVs() after RTV heap is initialized
-    // (RTV heap doesn't exist yet at this point in initialization)
-
-    // Allocate SRV for emission texture (for future lighting passes)
-    if (m_emissionSrvIndex == UINT_MAX) {
-        m_emissionSrvIndex = m_descriptorAllocator->Allocate();
-        if (m_emissionSrvIndex == UINT_MAX) {
-            LOGE("Failed to allocate SRV index for emission texture");
-            return false;
-        }
-    }
-
-    // Create SRV for emission texture
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_R11G11B10_FLOAT;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Texture2D.MipLevels = 1;
-
-    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_descriptorAllocator->GetCPUHandle(m_emissionSrvIndex);
-    m_device->CreateShaderResourceView(m_emissionTexture.Get(), &srvDesc, srvHandle);
-
-    LOGI("Emission texture created (" + std::to_string(m_width) + "x" + std::to_string(m_height) + " R11G11B10) - SRV[" + std::to_string(m_emissionSrvIndex) + "] RTV[2]");
-    return true;
-}
-
-void App::renderShadowMap() {
-    if (!m_shadowComputePSO || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
-        return; // Not initialized
-    }
-
-    // MODE 9.1: DXR 1.1 Inline Ray Tracing (RayQuery compute shader)
-    static int logOnce = 0;
-    if (logOnce++ < 3) {
-        LOGI("renderShadowMap: Compute shader with RayQuery (DXR 1.1)");
-    }
-
-    PIX_SCOPED_EVENT(m_cmdList.Get(), "Shadow Map Generation (RayQuery)");
-
-    // Transition shadow map to UAV state
-    static bool firstFrame = true;
-    if (!firstFrame) {
-        D3D12_RESOURCE_BARRIER toUAV{};
-        toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        toUAV.Transition.pResource = m_shadowMapTexture.Get();
-        toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-        toUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        toUAV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        m_cmdList->ResourceBarrier(1, &toUAV);
-    }
-
-    // Clear shadow map to 1.0 (fully lit)
-    float clearValue[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    m_cmdList->ClearUnorderedAccessViewFloat(
-        m_descriptorAllocator->GetGPUHandle(m_shadowMapUavIndex),
-        m_descriptorAllocator->GetCPUHandle(m_shadowMapUavIndex),
-        m_shadowMapTexture.Get(),
-        clearValue,
-        0, nullptr);
-
-    // Set compute pipeline state
-    m_cmdList->SetComputeRootSignature(m_shadowComputeRootSignature.Get());
-    m_cmdList->SetPipelineState(m_shadowComputePSO.Get());
-
-    // Bind descriptor heap
-    ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
-    m_cmdList->SetDescriptorHeaps(1, heaps);
-
-    // Parameter 0: TLAS SRV (t0)
-    m_cmdList->SetComputeRootDescriptorTable(0, m_descriptorAllocator->GetGPUHandle(m_tlasSrvIndex));
-
-    // Parameter 1: Shadow map UAV (u0)
-    m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_shadowMapUavIndex));
-
-    // Parameter 2: Shadow parameters (animated light direction)
-    static float lightAnimTime = 0.0f;
-    lightAnimTime += 0.016f;
-
-    float angle = lightAnimTime * 0.8f;
-    DirectX::XMFLOAT3 lightDir = {
-        sinf(angle) * 0.8f,
-        -0.6f,
-        cosf(angle) * 0.8f
-    };
-    DirectX::XMVECTOR lightVec = DirectX::XMLoadFloat3(&lightDir);
-    lightVec = DirectX::XMVector3Normalize(lightVec);
-    DirectX::XMStoreFloat3(&lightDir, lightVec);
-
-    struct ShadowParams {
-        DirectX::XMFLOAT3 lightDirection;
-        float shadowBias;
-        DirectX::XMFLOAT2 shadowMapSize;
-        DirectX::XMFLOAT2 padding;
-    } shadowParams;
-    shadowParams.lightDirection = lightDir;
-    shadowParams.shadowBias = 0.01f;
-    shadowParams.shadowMapSize = DirectX::XMFLOAT2(1024.0f, 1024.0f);
-    shadowParams.padding = DirectX::XMFLOAT2(0.0f, 0.0f);
-
-    m_cmdList->SetComputeRoot32BitConstants(2, 8, &shadowParams, 0);
-
-    // Dispatch compute shader (128x128 groups, 8x8 threads per group = 1024x1024 total)
-    const UINT threadGroupSize = 8;
-    const UINT dispatchX = (1024 + threadGroupSize - 1) / threadGroupSize;
-    const UINT dispatchY = (1024 + threadGroupSize - 1) / threadGroupSize;
-    m_cmdList->Dispatch(dispatchX, dispatchY, 1);
-
-    // UAV barrier to ensure compute writes complete
-    D3D12_RESOURCE_BARRIER uavBarrier{};
-    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    uavBarrier.UAV.pResource = m_shadowMapTexture.Get();
-    m_cmdList->ResourceBarrier(1, &uavBarrier);
-
-    // Transition shadow map to SRV state for graphics pipeline
-    D3D12_RESOURCE_BARRIER toSRV{};
-    toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    toSRV.Transition.pResource = m_shadowMapTexture.Get();
-    toSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    toSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    toSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    m_cmdList->ResourceBarrier(1, &toSRV);
-
-    firstFrame = false;
-
-    // NO FENCE WAIT - work stays on main command list, synced with frame fence
-}
-
-bool App::createShadowComputePipeline() {
-    // Load shadow compute shader DXIL (DXR 1.1 RayQuery)
-    LOGI("Loading shadow compute shader (DXR 1.1 RayQuery)...");
-    std::string errorMsg;
-    if (!FileLoader::LoadDXILShader("shaders/mode9/shadow_map_cs.dxil", m_shadowComputeShaderBlob, errorMsg)) {
-        LOGE("Failed to load shadow compute shader: " + errorMsg);
-        return false;
-    }
-    LOGI("Shadow compute shader loaded (" + std::to_string(m_shadowComputeShaderBlob->GetBufferSize()) + " bytes)");
-
-    // Create root signature (identical layout to old DispatchRays version)
-    // Parameter 0: TLAS SRV (t0)
-    // Parameter 1: Shadow map UAV (u0)
-    // Parameter 2: Shadow params constants (b0)
-
-    D3D12_DESCRIPTOR_RANGE srvRange{};
-    srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srvRange.NumDescriptors = 1;
-    srvRange.BaseShaderRegister = 0;  // t0
-    srvRange.RegisterSpace = 0;
-    srvRange.OffsetInDescriptorsFromTableStart = 0;
-
-    D3D12_DESCRIPTOR_RANGE uavRange{};
-    uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    uavRange.NumDescriptors = 1;
-    uavRange.BaseShaderRegister = 0;  // u0
-    uavRange.RegisterSpace = 0;
-    uavRange.OffsetInDescriptorsFromTableStart = 0;
-
-    D3D12_ROOT_PARAMETER params[3]{};
-
-    // TLAS SRV descriptor table
-    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[0].DescriptorTable.NumDescriptorRanges = 1;
-    params[0].DescriptorTable.pDescriptorRanges = &srvRange;
-    params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-    // Shadow map UAV descriptor table
-    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    params[1].DescriptorTable.NumDescriptorRanges = 1;
-    params[1].DescriptorTable.pDescriptorRanges = &uavRange;
-    params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-    // Shadow parameters root constants (8 DWORDs = 32 bytes)
-    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    params[2].Constants.Num32BitValues = 8;
-    params[2].Constants.ShaderRegister = 0;  // b0
-    params[2].Constants.RegisterSpace = 0;
-    params[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-
-    D3D12_ROOT_SIGNATURE_DESC rootSigDesc{};
-    rootSigDesc.NumParameters = 3;
-    rootSigDesc.pParameters = params;
-    rootSigDesc.NumStaticSamplers = 0;
-    rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
-
-    Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
-    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
-    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serializedRootSig, &errorBlob);
-    if (FAILED(hr)) {
-        LOGE("Failed to serialize shadow compute root signature");
-        return false;
-    }
-
-    hr = m_device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(),
-                                       IID_PPV_ARGS(&m_shadowComputeRootSignature));
-    if (FAILED(hr)) {
-        LOGE("Failed to create shadow compute root signature");
-        return false;
-    }
-
-    // Create compute PSO
-    D3D12_COMPUTE_PIPELINE_STATE_DESC computeDesc{};
-    computeDesc.pRootSignature = m_shadowComputeRootSignature.Get();
-    computeDesc.CS.pShaderBytecode = m_shadowComputeShaderBlob->GetBufferPointer();
-    computeDesc.CS.BytecodeLength = m_shadowComputeShaderBlob->GetBufferSize();
-
-    hr = m_device->CreateComputePipelineState(&computeDesc, IID_PPV_ARGS(&m_shadowComputePSO));
-    if (FAILED(hr)) {
-        LOGE("Failed to create shadow compute PSO: 0x" + std::to_string(static_cast<uint32_t>(hr)));
-        return false;
-    }
-
-    LOGI("Shadow compute pipeline created successfully (DXR 1.1 RayQuery)");
-    return true;
 }
 
 // ============================================================================

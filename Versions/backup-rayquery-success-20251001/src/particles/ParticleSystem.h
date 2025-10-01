@@ -63,8 +63,7 @@ public:
                         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
                         UINT width, UINT height,
                         D3D12_GPU_DESCRIPTOR_HANDLE shadowMapSrv = {},
-                        uint32_t mode9SubMode = 0,
-                        D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle = {});
+                        uint32_t mode9SubMode = 0);
 
     // Runtime adjustable parameters
     void AdjustGravity(float delta) { m_gravityStrength += delta; }
@@ -77,11 +76,6 @@ public:
     void AdjustColorTempScale(float delta) { m_colorTempScale = std::max(0.1f, m_colorTempScale + delta); }
     void ResetParticles() { m_totalTime = 0.0f; }
     void CycleConstraintShape() { m_constraintShape = (m_constraintShape + 1) % 5; }  // Cycle through 0-4
-
-    // Getters for DXR BLAS construction
-    ID3D12Resource* GetParticleBuffer() const { return m_particleBuffer.Get(); }
-    uint32_t GetParticleCount() const { return m_particleCount; }
-    float GetParticleSize() const { return m_particleSize; }
 
 private:
     bool CreateBuffers();
