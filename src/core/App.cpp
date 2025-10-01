@@ -1579,8 +1579,8 @@ bool App::initializeDXRCore() {
 	// Keep reference to underlying heap for compatibility
 	m_srvUavHeap = m_descriptorAllocator->GetHeap();
 
-	// Build acceleration structures
-	buildAccelerationStructures();
+	// NOTE: buildAccelerationStructures() moved to after particle system initialization
+	// (see line ~1636 in mode 9 case) because particle BLAS requires particle buffer to exist
 
 	// Create DXR pipeline
 	createDXRPipeline();
@@ -1625,6 +1625,9 @@ bool App::initializeDXRCore() {
 					m_demoMode = DemoMode::DXR12Test;
 				} else {
 					LOGI("Mesh particle system initialized successfully (100K particles)");
+
+					// Mode 9.1+: Build particle BLAS for self-shadowing (MUST come before shadow map setup)
+					buildAccelerationStructures();
 
 					// Mode 9.1+: Create shadow map texture and pipeline for RT lighting
 					if (!createShadowMapTexture()) {
@@ -1834,9 +1837,9 @@ void App::buildAccelerationStructures() {
 
 	PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Acceleration Structures");
 
-	// Build BLAS for triangle
+	// Build BLAS for debug triangle (temporary - conservative AABB causes 100% shadow)
 	{
-		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build BLAS");
+		PIX_SCOPED_EVENT(m_cmdList.Get(), "Build Triangle BLAS");
 		if (!m_asBuilder->CreateTriangleBLAS(m_blasResult, m_blasScratch)) {
 			LOGE("Failed to create triangle BLAS");
 			return;

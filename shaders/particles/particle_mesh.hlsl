@@ -203,10 +203,10 @@ float4 PSMain(VertexOutput input) : SV_Target {
         if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 && shadowUV.y >= 0.0 && shadowUV.y <= 1.0) {
             shadowFactor = shadowMap.SampleLevel(shadowSampler, shadowUV, 0);
 
-            // DEBUG VISUALIZATION v3: Shadowed areas = DARK, Lit areas = GALAXY COLORS
+            // DEBUG VISUALIZATION v4: EXAGGERATED SHADOW - Shadowed areas = VERY DARK, Lit areas = GALAXY COLORS
             // shadowFactor: 0.0 = occluded (in shadow), 1.0 = lit (no occlusion)
-            // Apply heavy darkening to shadowed particles (20% brightness)
-            float3 debugColor = lerp(color * 0.2, color, shadowFactor);
+            // Apply EXTREME darkening to shadowed particles (10% brightness for unmistakable verification)
+            float3 debugColor = lerp(color * 0.1, color, shadowFactor);
             return float4(debugColor, alpha);
         }
     }

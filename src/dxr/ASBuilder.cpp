@@ -114,6 +114,147 @@ bool ASBuilder::CreateTriangleBLAS(
 	return true;
 }
 
+bool ASBuilder::CreateParticleBLAS(
+	Microsoft::WRL::ComPtr<ID3D12Resource>& outBLAS,
+	Microsoft::WRL::ComPtr<ID3D12Resource>& outScratch,
+	ID3D12Resource* particleBuffer,
+	uint32_t particleCount,
+	float particleSize) {
+
+	LOGI("ASBuilder::CreateParticleBLAS - creating conservative procedural AABB for particle cloud");
+
+	// IMPORTANT: Particle buffer is D3D12_HEAP_TYPE_DEFAULT (GPU-only), cannot be mapped from CPU
+	// Instead, create a single conservative AABB that encompasses the entire particle system
+	// This is simpler and works for self-shadowing since particles are densely packed in accretion disk
+
+	// Accretion disk parameters (from ParticleSystem.h):
+	// - Inner radius: 6 units, Outer radius: 60 units
+	// - Disk thickness: 40 units (Y extent)
+	// - Particles distributed in XZ plane around Y=0
+
+	const float outerRadius = 100.0f;  // Conservative: larger than max particle distance
+	const float diskThickness = 50.0f; // Conservative: larger than max Y deviation
+	const float aabbHalfSize = particleSize * 0.5f;  // Per-particle half-extent
+
+	// Create single AABB that covers entire particle cloud
+	struct AABB {
+		float minX, minY, minZ;
+		float maxX, maxY, maxZ;
+	};
+
+	AABB conservativeAABB;
+	conservativeAABB.minX = -outerRadius - aabbHalfSize;
+	conservativeAABB.minY = -diskThickness - aabbHalfSize;
+	conservativeAABB.minZ = -outerRadius - aabbHalfSize;
+	conservativeAABB.maxX = outerRadius + aabbHalfSize;
+	conservativeAABB.maxY = diskThickness + aabbHalfSize;
+	conservativeAABB.maxZ = outerRadius + aabbHalfSize;
+
+	// Create AABB buffer (single AABB: 6 floats)
+	const size_t aabbBufferSize = sizeof(AABB);
+	D3D12_HEAP_PROPERTIES uploadHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+	D3D12_RESOURCE_DESC aabbBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(aabbBufferSize);
+
+	ComPtr<ID3D12Resource> aabbBuffer;
+	HRESULT hr = m_device->CreateCommittedResource(
+		&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &aabbBufferDesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+		IID_PPV_ARGS(&aabbBuffer));
+
+	if (FAILED(hr)) {
+		LOGE("Failed to create AABB buffer for particles");
+		return false;
+	}
+
+	// Map AABB buffer and write conservative bounds
+	void* pAABBData;
+	CD3DX12_RANGE writeRange(0, 0);  // Write-only
+	hr = aabbBuffer->Map(0, &writeRange, &pAABBData);
+	if (FAILED(hr)) {
+		LOGE("Failed to map AABB buffer");
+		return false;
+	}
+
+	memcpy(pAABBData, &conservativeAABB, sizeof(AABB));
+	aabbBuffer->Unmap(0, nullptr);
+
+	LOGI("Created conservative AABB for particle cloud (bounds: X=" + std::to_string(conservativeAABB.minX) +
+	     " to " + std::to_string(conservativeAABB.maxX) + ")");
+
+	// Create geometry descriptor for single conservative AABB
+	m_particleGeometry = {};
+	m_particleGeometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+	m_particleGeometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;  // Treat as opaque for performance
+	m_particleGeometry.AABBs.AABBCount = 1;  // Single conservative AABB
+	m_particleGeometry.AABBs.AABBs.StartAddress = aabbBuffer->GetGPUVirtualAddress();
+	m_particleGeometry.AABBs.AABBs.StrideInBytes = sizeof(float) * 6;
+
+	// Build BLAS inputs for particle geometry
+	m_particleBLASInputs = {};
+	m_particleBLASInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+	m_particleBLASInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+	m_particleBLASInputs.NumDescs = 1;
+	m_particleBLASInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+	m_particleBLASInputs.pGeometryDescs = &m_particleGeometry;
+
+	// Query prebuild info for proper sizing (important for large particle counts)
+	ComPtr<ID3D12Device5> device5;
+	hr = m_device.As(&device5);
+	if (FAILED(hr)) {
+		LOGE("Failed to query ID3D12Device5 for prebuild info");
+		return false;
+	}
+
+	D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo{};
+	device5->GetRaytracingAccelerationStructurePrebuildInfo(&m_particleBLASInputs, &prebuildInfo);
+
+	LOGI("Particle BLAS prebuild info: result=" + std::to_string(prebuildInfo.ResultDataMaxSizeInBytes) +
+	     " scratch=" + std::to_string(prebuildInfo.ScratchDataSizeInBytes));
+
+	// Create BLAS result buffer (properly sized for particle count)
+	D3D12_HEAP_PROPERTIES defaultHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+	D3D12_RESOURCE_DESC blasDesc = CD3DX12_RESOURCE_DESC::Buffer(
+		prebuildInfo.ResultDataMaxSizeInBytes,
+		D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+	hr = m_device->CreateCommittedResource(
+		&defaultHeapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&blasDesc,
+		D3D12_RESOURCE_STATE_COMMON,
+		nullptr,
+		IID_PPV_ARGS(&outBLAS));
+
+	if (FAILED(hr)) {
+		LOGE("Failed to create particle BLAS result buffer");
+		return false;
+	}
+
+	// Create scratch buffer
+	D3D12_RESOURCE_DESC scratchDesc = CD3DX12_RESOURCE_DESC::Buffer(
+		prebuildInfo.ScratchDataSizeInBytes,
+		D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+	hr = m_device->CreateCommittedResource(
+		&defaultHeapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&scratchDesc,
+		D3D12_RESOURCE_STATE_COMMON,
+		nullptr,
+		IID_PPV_ARGS(&outScratch));
+
+	if (FAILED(hr)) {
+		LOGE("Failed to create particle BLAS scratch buffer");
+		return false;
+	}
+
+	// Store AABB buffer to keep it alive
+	m_particleAABBBuffer = aabbBuffer;
+
+	LOGI("ASBuilder::CreateParticleBLAS completed - procedural AABB geometry created");
+	return true;
+}
+
 bool ASBuilder::BuildTLAS(
 	Microsoft::WRL::ComPtr<ID3D12Resource>& outTLAS,
 	Microsoft::WRL::ComPtr<ID3D12Resource>& outScratch,
@@ -218,6 +359,37 @@ void ASBuilder::BuildBLAS(ID3D12GraphicsCommandList* cmdList,
 	cmdList->ResourceBarrier(1, &uavBarrier);
 
 	LOGI("ASBuilder::BuildBLAS - GPU build commands completed (REAL BUILD)");
+}
+
+void ASBuilder::BuildParticleBLAS(ID3D12GraphicsCommandList* cmdList,
+	ID3D12Resource* blasResult,
+	ID3D12Resource* blasScratch) {
+
+	LOGI("ASBuilder::BuildParticleBLAS - Executing GPU build commands for particle AABBs");
+
+	// Query for DXR command list interface
+	ComPtr<ID3D12GraphicsCommandList4> cmdList4;
+	HRESULT hr = cmdList->QueryInterface(IID_PPV_ARGS(&cmdList4));
+	if (FAILED(hr)) {
+		LOGE("Failed to query ID3D12GraphicsCommandList4 for particle BLAS build");
+		return;
+	}
+
+	// Build the particle BLAS on GPU
+	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC buildDesc = {};
+	buildDesc.Inputs = m_particleBLASInputs;
+	buildDesc.ScratchAccelerationStructureData = blasScratch->GetGPUVirtualAddress();
+	buildDesc.DestAccelerationStructureData = blasResult->GetGPUVirtualAddress();
+
+	cmdList4->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+
+	// Add UAV barrier to ensure particle BLAS is built before TLAS references it
+	D3D12_RESOURCE_BARRIER uavBarrier = {};
+	uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	uavBarrier.UAV.pResource = blasResult;
+	cmdList->ResourceBarrier(1, &uavBarrier);
+
+	LOGI("ASBuilder::BuildParticleBLAS - GPU build commands completed (REAL BUILD)");
 }
 
 void ASBuilder::BuildTLASGPU(ID3D12GraphicsCommandList* cmdList,

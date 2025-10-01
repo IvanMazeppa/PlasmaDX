@@ -77,6 +77,11 @@ public:
     void ResetParticles() { m_totalTime = 0.0f; }
     void CycleConstraintShape() { m_constraintShape = (m_constraintShape + 1) % 5; }  // Cycle through 0-4
 
+    // Getters for DXR BLAS construction
+    ID3D12Resource* GetParticleBuffer() const { return m_particleBuffer.Get(); }
+    uint32_t GetParticleCount() const { return m_particleCount; }
+    float GetParticleSize() const { return m_particleSize; }
+
 private:
     bool CreateBuffers();
     bool CreateComputePipeline();
