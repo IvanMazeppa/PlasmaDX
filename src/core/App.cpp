@@ -1629,10 +1629,10 @@ bool App::initializeDXRCore() {
 					// Mode 9.1+: Create shadow map texture and pipeline for RT lighting
 					if (!createShadowMapTexture()) {
 						LOGW("Failed to create shadow map texture - Mode 9.1+ will not work");
-					} else if (!createShadowPipeline()) {
-						LOGW("Failed to create shadow pipeline - Mode 9.1+ will not work");
+					} else if (!createShadowComputePipeline()) {
+						LOGW("Failed to create shadow compute pipeline - Mode 9.1+ will not work");
 					} else {
-						LOGI("Mode 9 RT lighting ready (shadow map + pipeline initialized)");
+						LOGI("Mode 9 RT lighting ready (shadow map + RayQuery compute pipeline initialized)");
 					}
 				}
 			} catch (const std::exception& e) {
@@ -2169,9 +2169,9 @@ void App::renderFrameDXR() {
 				// Update particle physics (accretion disk simulation)
 				m_meshParticleSystem->UpdatePhysics(m_cmdList.Get(), deltaTime);
 
-				// Mode 9.1+: Generate DXR shadow map before particle rendering
+				// Mode 9.1+: Generate shadow map before particle rendering (RayQuery compute shader)
 				if (m_mode9SubMode >= Mode9SubMode::ShadowMap) {
-					renderShadowMap();
+					renderShadowMap();  // Runs on main command list, no fence wait needed
 				}
 
 				// Get current backbuffer for direct rendering
@@ -2876,17 +2876,19 @@ bool App::createShadowMapTexture() {
 }
 
 void App::renderShadowMap() {
-    // TEMPORARY: Disable shadow map generation to isolate constant buffer issue
-    // TODO: Fix command list state management between DXR and graphics pipelines
-    return;
-
-    if (!m_shadowPipeline || !m_shadowSBT || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
-        return; // Not initialized yet or Mode 9.0 baseline
+    if (!m_shadowComputePSO || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
+        return; // Not initialized
     }
 
-    PIX_SCOPED_EVENT(m_cmdList.Get(), "DXR Shadow Map Generation");
+    // MODE 9.1: DXR 1.1 Inline Ray Tracing (RayQuery compute shader)
+    static int logOnce = 0;
+    if (logOnce++ < 3) {
+        LOGI("renderShadowMap: Compute shader with RayQuery (DXR 1.1)");
+    }
 
-    // Transition shadow map to UAV state (created in UAV, so only needed after first frame)
+    PIX_SCOPED_EVENT(m_cmdList.Get(), "Shadow Map Generation (RayQuery)");
+
+    // Transition shadow map to UAV state
     static bool firstFrame = true;
     if (!firstFrame) {
         D3D12_RESOURCE_BARRIER toUAV{};
@@ -2907,9 +2909,9 @@ void App::renderShadowMap() {
         clearValue,
         0, nullptr);
 
-    // Set up DXR pipeline state
-    m_cmdList->SetComputeRootSignature(m_shadowRootSignature.Get());
-    m_cmdList->SetPipelineState1(m_shadowPipeline->GetPSO());
+    // Set compute pipeline state
+    m_cmdList->SetComputeRootSignature(m_shadowComputeRootSignature.Get());
+    m_cmdList->SetPipelineState(m_shadowComputePSO.Get());
 
     // Bind descriptor heap
     ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
@@ -2921,37 +2923,25 @@ void App::renderShadowMap() {
     // Parameter 1: Shadow map UAV (u0)
     m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_shadowMapUavIndex));
 
-    // Parameter 2: Shadow parameters (b0)
-    // ANIMATED light direction - rotates around Y axis to make shadow sweep across particles
+    // Parameter 2: Shadow parameters (animated light direction)
     static float lightAnimTime = 0.0f;
-    static int logCount = 0;
-    lightAnimTime += 0.016f; // Approx 60fps timestep
+    lightAnimTime += 0.016f;
 
-    // Rotate light in XZ plane (keeping Y component for elevation)
-    float angle = lightAnimTime * 0.8f; // Slow rotation for clear visualization
+    float angle = lightAnimTime * 0.8f;
     DirectX::XMFLOAT3 lightDir = {
-        sinf(angle) * 0.8f,  // X: rotates in circle
-        -0.6f,                // Y: elevated above particles (negative = from above)
-        cosf(angle) * 0.8f   // Z: rotates in circle
+        sinf(angle) * 0.8f,
+        -0.6f,
+        cosf(angle) * 0.8f
     };
     DirectX::XMVECTOR lightVec = DirectX::XMLoadFloat3(&lightDir);
     lightVec = DirectX::XMVector3Normalize(lightVec);
     DirectX::XMStoreFloat3(&lightDir, lightVec);
 
-    // Debug: Log light direction periodically
-    if (logCount < 5 || logCount % 60 == 0) {
-        LOGI("Shadow light anim: time=" + std::to_string(lightAnimTime) +
-             " angle=" + std::to_string(angle) +
-             " dir=(" + std::to_string(lightDir.x) + "," + std::to_string(lightDir.y) + "," + std::to_string(lightDir.z) + ")");
-    }
-    logCount++;
-
-    // Shadow parameters matching HLSL cbuffer layout
     struct ShadowParams {
-        DirectX::XMFLOAT3 lightDirection;  // 12 bytes
-        float shadowBias;                   // 4 bytes
-        DirectX::XMFLOAT2 shadowMapSize;   // 8 bytes
-        DirectX::XMFLOAT2 padding;         // 8 bytes (total 32 bytes / 8 dwords)
+        DirectX::XMFLOAT3 lightDirection;
+        float shadowBias;
+        DirectX::XMFLOAT2 shadowMapSize;
+        DirectX::XMFLOAT2 padding;
     } shadowParams;
     shadowParams.lightDirection = lightDir;
     shadowParams.shadowBias = 0.01f;
@@ -2960,17 +2950,19 @@ void App::renderShadowMap() {
 
     m_cmdList->SetComputeRoot32BitConstants(2, 8, &shadowParams, 0);
 
-    // Get dispatch rays descriptor from SBT (1024x1024 shadow map)
-    D3D12_DISPATCH_RAYS_DESC dispatchDesc = m_shadowSBT->GetDispatchRaysDesc(1024, 1024);
-    m_cmdList->DispatchRays(&dispatchDesc);
+    // Dispatch compute shader (128x128 groups, 8x8 threads per group = 1024x1024 total)
+    const UINT threadGroupSize = 8;
+    const UINT dispatchX = (1024 + threadGroupSize - 1) / threadGroupSize;
+    const UINT dispatchY = (1024 + threadGroupSize - 1) / threadGroupSize;
+    m_cmdList->Dispatch(dispatchX, dispatchY, 1);
 
-    // UAV barrier to ensure DXR writes complete
+    // UAV barrier to ensure compute writes complete
     D3D12_RESOURCE_BARRIER uavBarrier{};
     uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     uavBarrier.UAV.pResource = m_shadowMapTexture.Get();
     m_cmdList->ResourceBarrier(1, &uavBarrier);
 
-    // Transition shadow map to SRV state for sampling
+    // Transition shadow map to SRV state for graphics pipeline
     D3D12_RESOURCE_BARRIER toSRV{};
     toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     toSRV.Transition.pResource = m_shadowMapTexture.Get();
@@ -2979,24 +2971,26 @@ void App::renderShadowMap() {
     toSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     m_cmdList->ResourceBarrier(1, &toSRV);
 
-    firstFrame = false;  // Mark that we've rendered at least once
+    firstFrame = false;
+
+    // NO FENCE WAIT - work stays on main command list, synced with frame fence
 }
 
-bool App::createShadowPipeline() {
-    // Load shadow shader DXIL
-    LOGI("Loading shadow map shader...");
+bool App::createShadowComputePipeline() {
+    // Load shadow compute shader DXIL (DXR 1.1 RayQuery)
+    LOGI("Loading shadow compute shader (DXR 1.1 RayQuery)...");
     std::string errorMsg;
-    if (!FileLoader::LoadDXILShader("shaders/mode9/shadow_map.dxil", m_shadowShaderBlob, errorMsg)) {
-        LOGE("Failed to load shadow shader DXIL: " + errorMsg);
+    if (!FileLoader::LoadDXILShader("shaders/mode9/shadow_map_cs.dxil", m_shadowComputeShaderBlob, errorMsg)) {
+        LOGE("Failed to load shadow compute shader: " + errorMsg);
         return false;
     }
-    LOGI("Shadow shader loaded (" + std::to_string(m_shadowShaderBlob->GetBufferSize()) + " bytes)");
+    LOGI("Shadow compute shader loaded (" + std::to_string(m_shadowComputeShaderBlob->GetBufferSize()) + " bytes)");
 
-    // Create shadow root signature (simpler than main DXR)
+    // Create root signature (identical layout to old DispatchRays version)
     // Parameter 0: TLAS SRV (t0)
     // Parameter 1: Shadow map UAV (u0)
-    // Parameter 2: Root constants for shadow params (b0)
-    
+    // Parameter 2: Shadow params constants (b0)
+
     D3D12_DESCRIPTOR_RANGE srvRange{};
     srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     srvRange.NumDescriptors = 1;
@@ -3025,7 +3019,7 @@ bool App::createShadowPipeline() {
     params[1].DescriptorTable.pDescriptorRanges = &uavRange;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    // Shadow parameters root constants (8 floats = 32 bytes)
+    // Shadow parameters root constants (8 DWORDs = 32 bytes)
     params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     params[2].Constants.Num32BitValues = 8;
     params[2].Constants.ShaderRegister = 0;  // b0
@@ -3042,74 +3036,30 @@ bool App::createShadowPipeline() {
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
     HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serializedRootSig, &errorBlob);
     if (FAILED(hr)) {
-        LOGE("Failed to serialize shadow root signature");
+        LOGE("Failed to serialize shadow compute root signature");
         return false;
     }
 
-    hr = m_device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(), IID_PPV_ARGS(&m_shadowRootSignature));
+    hr = m_device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(),
+                                       IID_PPV_ARGS(&m_shadowComputeRootSignature));
     if (FAILED(hr)) {
-        LOGE("Failed to create shadow root signature");
+        LOGE("Failed to create shadow compute root signature");
         return false;
     }
 
-    // Create shadow pipeline
-    m_shadowPipeline = std::make_unique<Pipeline>(m_device.Get());
+    // Create compute PSO
+    D3D12_COMPUTE_PIPELINE_STATE_DESC computeDesc{};
+    computeDesc.pRootSignature = m_shadowComputeRootSignature.Get();
+    computeDesc.CS.pShaderBytecode = m_shadowComputeShaderBlob->GetBufferPointer();
+    computeDesc.CS.BytecodeLength = m_shadowComputeShaderBlob->GetBufferSize();
 
-    std::vector<std::wstring> exports = { L"ShadowRayGen", L"ShadowMiss" };
-    m_shadowPipeline->AddDXILLibrary(
-        m_shadowShaderBlob->GetBufferPointer(),
-        m_shadowShaderBlob->GetBufferSize(),
-        exports);
-
-    // No hit group - use green diamond test approach (miss-only detection)
-
-    // Set shader config (ShadowPayload = 1 float = 4 bytes)
-    m_shadowPipeline->SetShaderConfig(4, 0);
-
-    // Set pipeline config (no recursion)
-    m_shadowPipeline->SetPipelineConfig(1);
-
-    // Set root signature
-    m_shadowPipeline->SetGlobalRootSignature(m_shadowRootSignature.Get());
-
-    // Create PSO
-    LOGI("Creating shadow PSO...");
-    m_shadowPipeline->Create();
-    LOGI("Shadow PSO created");
-
-    // Create shadow SBT
-    m_shadowSBT = std::make_unique<SBT>(m_device.Get());
-    auto psoProps = m_shadowPipeline->GetPSOProperties();
-    if (!psoProps) {
-        LOGE("Shadow PSO properties are null");
+    hr = m_device->CreateComputePipelineState(&computeDesc, IID_PPV_ARGS(&m_shadowComputePSO));
+    if (FAILED(hr)) {
+        LOGE("Failed to create shadow compute PSO: 0x" + std::to_string(static_cast<uint32_t>(hr)));
         return false;
     }
-    m_shadowSBT->SetPSOProperties(psoProps);
 
-    // Raygen record
-    SBT::ShaderRecord raygenRecord;
-    raygenRecord.shaderIdentifier = psoProps->GetShaderIdentifier(L"ShadowRayGen");
-    if (!raygenRecord.shaderIdentifier) {
-        LOGE("ShadowRayGen shader identifier is null");
-        return false;
-    }
-    m_shadowSBT->SetRaygenRecord(raygenRecord);
-
-    // Miss record
-    SBT::ShaderRecord missRecord;
-    missRecord.shaderIdentifier = psoProps->GetShaderIdentifier(L"ShadowMiss");
-    if (!missRecord.shaderIdentifier) {
-        LOGE("ShadowMiss shader identifier is null");
-        return false;
-    }
-    m_shadowSBT->AddMissRecord(missRecord);
-
-    // No hit group - green diamond test approach (miss-only)
-
-    // Build SBT
-    m_shadowSBT->Build();
-    LOGI("Shadow SBT built successfully");
-
+    LOGI("Shadow compute pipeline created successfully (DXR 1.1 RayQuery)");
     return true;
 }
 

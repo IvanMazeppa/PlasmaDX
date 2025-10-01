@@ -1,0 +1,46 @@
+NVIDIA system information report created on: 10/01/2025 17:51:56
+NVIDIA App version: 11.0.5.266
+Operating system: Microsoft Windows 11 Pro, Version 10.0.26220
+DirectX runtime version: DirectX 12
+Driver: Game Ready Driver - 580.64 - Wed Apr 16, 2025
+CPU: AMD Ryzen 9 5950X 16-Core Processor            
+RAM: 32.0 GB
+Storage (5): SSD - 238.5 GB,SSD - 465.8 GB,+3 more
+
+Graphics card
+GPU: NVIDIA GeForce RTX 4060 Ti
+Direct3D feature level: 12_1
+CUDA cores: 4352
+Graphics clock: 2565 MHz
+Resizable BAR: No
+Memory data rate: 18.00 Gbps
+Memory interface: 128-bit
+Memory bandwidth: 288.032 GB/s
+Total available graphics memory: 24526 MB
+System video memory: N/A
+Shared system memory: 16338 MB
+Dedicated video memory: 8188 MB GDDR6
+Video BIOS version: 95.06.26.00.a7
+Device ID: 10DE 2803 88FC1043
+Part number: G190 0361
+IRQ: Not used
+Bus: PCI Express x8 Gen4
+
+Display (2): G27QC A
+Resolution: 2560 x 1440 (native)
+Refresh rate: 165 Hz
+Desktop colour depth: Highest (32-bit)
+Display technology: Variable Refresh Rate
+HDCP: Supported
+
+Display (1): DELL U2713HM
+Resolution: 1440 x 2560 (native)
+Refresh rate: 60 Hz
+Desktop colour depth: Highest (32-bit)
+HDCP: Supported
+
+Display (3): Onlap1102I
+Resolution: 1080p, 1920 x 1080 (native)
+Refresh rate: 60 Hz
+Desktop colour depth: Highest (32-bit)
+HDCP: Supported

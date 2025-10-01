@@ -180,14 +180,15 @@ private:
 	UINT m_hdrSrvIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 	UINT m_hdrUavIndex = UINT_MAX;  // Allocated via descriptor heap allocator
 
-	// Mode 9.1: Shadow map resources (direct-to-backbuffer RT lighting)
+	// Mode 9.1: Shadow map resources (DXR 1.1 RayQuery compute shader)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_shadowMapTexture;
 	UINT m_shadowMapSrvIndex = UINT_MAX;
 	UINT m_shadowMapUavIndex = UINT_MAX;
-	std::unique_ptr<Pipeline> m_shadowPipeline;
-	std::unique_ptr<SBT> m_shadowSBT;
-	Microsoft::WRL::ComPtr<ID3DBlob> m_shadowShaderBlob;
-	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_shadowRootSignature;
+
+	// RayQuery compute pipeline (replaces DispatchRays RTPSO/SBT)
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_shadowComputePSO;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_shadowComputeRootSignature;
+	Microsoft::WRL::ComPtr<ID3DBlob> m_shadowComputeShaderBlob;
 
 	// DXR SRV descriptors for descriptor table binding
 	UINT m_tlasSrvIndex = UINT_MAX;     // TLAS SRV for descriptor table (t0)
@@ -310,9 +311,9 @@ private:
 	bool createHDRTexture();
 	void recreateHDRTexture();
 
-	// Mode 9.1: Shadow map methods
+	// Mode 9.1: Shadow map methods (RayQuery compute shader)
 	bool createShadowMapTexture();
-	bool createShadowPipeline();
+	bool createShadowComputePipeline();
 	void renderShadowMap();
 
 	// Voxel particle system methods (Mode 6)
