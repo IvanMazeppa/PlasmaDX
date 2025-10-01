@@ -114,6 +114,13 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			}
 			break;
 
+		case VK_F8:  // Toggle emission buffer debug view (Mode 9.2+)
+			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
+				g_appInstance->m_showEmissionDebug = !g_appInstance->m_showEmissionDebug;
+				LOGI(g_appInstance->m_showEmissionDebug ? "Emission Debug: ON (showing emission buffer)" : "Emission Debug: OFF (normal rendering)");
+			}
+			break;
+
 		case 'F':  // Toggle torchlight attach/detach (only in torchlight demo mode)
 			if (g_appInstance && getenv("PLASMADX_TORCHLIGHT_DEMO")) {
 				g_appInstance->m_torchAttached = !g_appInstance->m_torchAttached;
@@ -1660,6 +1667,20 @@ bool App::initializeDXRCore() {
 						LOGW("Failed to create emission texture - Mode 9.2+ will not work");
 					} else {
 						LOGI("Mode 9.2 emission buffer ready");
+					
+					// Mode 9.2 Milestone 2-3: Create spatial grid lighting resources
+					if (!createEmissionGridResources()) {
+						LOGW("Failed to create emission grid resources - Mode 9.2 lighting disabled");
+					} else {
+						LOGI("Mode 9.2 spatial grid lighting ready");
+					
+					// Create compute pipelines for grid building and lighting
+					if (!createLightingComputePipelines()) {
+						LOGW("Failed to create lighting compute pipelines - Mode 9.2 lighting disabled");
+					} else {
+						LOGI("Mode 9.2 lighting compute pipelines ready");
+					}
+					}
 					}
 				}
 			} catch (const std::exception& e) {
@@ -2247,6 +2268,62 @@ void App::renderFrameDXR() {
 					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
 					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode),
 					m_emissionRtvHandle);  // Mode 9.2: Pass emission RTV for dual RT output
+
+				// Mode 9.2 Milestone 2: Build emission spatial grid (if sub-mode >= 2)
+				if (m_mode9SubMode >= Mode9SubMode::ParticleRelight && m_emissionGridPSO) {
+					// Transition emission texture to SRV for compute reading
+					D3D12_RESOURCE_BARRIER emissionToSRV{};
+					emissionToSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+					emissionToSRV.Transition.pResource = m_emissionTexture.Get();
+					emissionToSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+					emissionToSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+					emissionToSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+					m_cmdList->ResourceBarrier(1, &emissionToSRV);
+
+					// Build spatial grid from emission buffer
+					computeEmissionGrid();
+
+					// Transition emission texture back to RENDER_TARGET for next frame
+					emissionToSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+					emissionToSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+					m_cmdList->ResourceBarrier(1, &emissionToSRV);
+				}
+
+				// F8 Debug: Copy emission buffer to backbuffer for visualization
+				if (m_showEmissionDebug && m_emissionTexture) {
+					// Transition emission texture from RENDER_TARGET to COPY_SOURCE
+					D3D12_RESOURCE_BARRIER emissionToSource{};
+					emissionToSource.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+					emissionToSource.Transition.pResource = m_emissionTexture.Get();
+					emissionToSource.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+					emissionToSource.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+					emissionToSource.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+					// Transition backbuffer from RENDER_TARGET to COPY_DEST (temporarily)
+					D3D12_RESOURCE_BARRIER bbToDest{};
+					bbToDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+					bbToDest.Transition.pResource = backbuffer.Get();
+					bbToDest.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+					bbToDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+					bbToDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+					D3D12_RESOURCE_BARRIER barriers[2] = { emissionToSource, bbToDest };
+					m_cmdList->ResourceBarrier(2, barriers);
+
+					// Copy emission texture to backbuffer
+					m_cmdList->CopyResource(backbuffer.Get(), m_emissionTexture.Get());
+
+					// Transition emission texture back to RENDER_TARGET
+					emissionToSource.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+					emissionToSource.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+					// Transition backbuffer to RENDER_TARGET (before final PRESENT transition)
+					bbToDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+					bbToDest.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+
+					D3D12_RESOURCE_BARRIER restoreBarriers[2] = { emissionToSource, bbToDest };
+					m_cmdList->ResourceBarrier(2, restoreBarriers);
+				}
 
 				// Transition backbuffer back to present
 				D3D12_RESOURCE_BARRIER toPresent{};
@@ -2968,6 +3045,136 @@ bool App::createEmissionTexture() {
     return true;
 }
 
+bool App::createEmissionGridResources() {
+    // Mode 9.2 Milestone 2-3: Create GPU buffers for spatial lighting system
+
+    // 1. Emission Grid Buffer: 64^3 cells, float4 per cell (rgb=emission, w=count)
+    const UINT gridCellCount = EMISSION_GRID_RESOLUTION * EMISSION_GRID_RESOLUTION * EMISSION_GRID_RESOLUTION;
+    const UINT gridBufferSize = gridCellCount * sizeof(float) * 4;  // float4 per cell
+
+    D3D12_RESOURCE_DESC gridBufferDesc = {};
+    gridBufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    gridBufferDesc.Width = gridBufferSize;
+    gridBufferDesc.Height = 1;
+    gridBufferDesc.DepthOrArraySize = 1;
+    gridBufferDesc.MipLevels = 1;
+    gridBufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+    gridBufferDesc.SampleDesc.Count = 1;
+    gridBufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    gridBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    D3D12_HEAP_PROPERTIES heapProps = {};
+    heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    HRESULT hr = m_device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &gridBufferDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_emissionGridBuffer));
+
+    if (FAILED(hr)) {
+        LOGE("Failed to create emission grid buffer: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    // Allocate UAV for grid building
+    m_emissionGridUavIndex = m_descriptorAllocator->Allocate();
+    if (m_emissionGridUavIndex == UINT_MAX) {
+        LOGE("Failed to allocate UAV for emission grid");
+        return false;
+    }
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uavDesc.Buffer.FirstElement = 0;
+    uavDesc.Buffer.NumElements = gridCellCount;
+    uavDesc.Buffer.StructureByteStride = 0;
+    uavDesc.Buffer.CounterOffsetInBytes = 0;
+    uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE gridUavHandle = m_descriptorAllocator->GetCPUHandle(m_emissionGridUavIndex);
+    m_device->CreateUnorderedAccessView(m_emissionGridBuffer.Get(), nullptr, &uavDesc, gridUavHandle);
+
+    // Allocate SRV for lighting shader
+    m_emissionGridSrvIndex = m_descriptorAllocator->Allocate();
+    if (m_emissionGridSrvIndex == UINT_MAX) {
+        LOGE("Failed to allocate SRV for emission grid");
+        return false;
+    }
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Buffer.FirstElement = 0;
+    srvDesc.Buffer.NumElements = gridCellCount;
+    srvDesc.Buffer.StructureByteStride = 0;
+    srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE gridSrvHandle = m_descriptorAllocator->GetCPUHandle(m_emissionGridSrvIndex);
+    m_device->CreateShaderResourceView(m_emissionGridBuffer.Get(), &srvDesc, gridSrvHandle);
+
+    // 2. Particle Lighting Buffer: float4 per particle (rgb=additive light, w=unused)
+    const UINT particleCount = m_mode9ParticleCount;
+    const UINT lightingBufferSize = particleCount * sizeof(float) * 4;
+
+    D3D12_RESOURCE_DESC lightingBufferDesc = {};
+    lightingBufferDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    lightingBufferDesc.Width = lightingBufferSize;
+    lightingBufferDesc.Height = 1;
+    lightingBufferDesc.DepthOrArraySize = 1;
+    lightingBufferDesc.MipLevels = 1;
+    lightingBufferDesc.Format = DXGI_FORMAT_UNKNOWN;
+    lightingBufferDesc.SampleDesc.Count = 1;
+    lightingBufferDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    lightingBufferDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    hr = m_device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &lightingBufferDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&m_particleLightingBuffer));
+
+    if (FAILED(hr)) {
+        LOGE("Failed to create particle lighting buffer: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    // Allocate UAV for lighting compute
+    m_particleLightingUavIndex = m_descriptorAllocator->Allocate();
+    if (m_particleLightingUavIndex == UINT_MAX) {
+        LOGE("Failed to allocate UAV for particle lighting");
+        return false;
+    }
+
+    uavDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    uavDesc.Buffer.NumElements = particleCount;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE lightingUavHandle = m_descriptorAllocator->GetCPUHandle(m_particleLightingUavIndex);
+    m_device->CreateUnorderedAccessView(m_particleLightingBuffer.Get(), nullptr, &uavDesc, lightingUavHandle);
+
+    // Allocate SRV for particle rendering
+    m_particleLightingSrvIndex = m_descriptorAllocator->Allocate();
+    if (m_particleLightingSrvIndex == UINT_MAX) {
+        LOGE("Failed to allocate SRV for particle lighting");
+        return false;
+    }
+
+    srvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvDesc.Buffer.NumElements = particleCount;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE lightingSrvHandle = m_descriptorAllocator->GetCPUHandle(m_particleLightingSrvIndex);
+    m_device->CreateShaderResourceView(m_particleLightingBuffer.Get(), &srvDesc, lightingSrvHandle);
+
+    LOGI("Emission grid resources created: Grid[" + std::to_string(EMISSION_GRID_RESOLUTION) + "^3=" + std::to_string(gridCellCount) + " cells, " + std::to_string(gridBufferSize/1024) + "KB], Lighting[" + std::to_string(particleCount) + " particles, " + std::to_string(lightingBufferSize/1024) + "KB]");
+    return true;
+}
+
 void App::renderShadowMap() {
     if (!m_shadowComputePSO || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
         return; // Not initialized
@@ -3069,6 +3276,139 @@ void App::renderShadowMap() {
     // NO FENCE WAIT - work stays on main command list, synced with frame fence
 }
 
+void App::computeEmissionGrid() {
+    // Mode 9.2 Milestone 2: Build spatial grid from emission buffer
+    if (!m_emissionGridPSO || !m_emissionTexture || m_emissionGridUavIndex == UINT_MAX) {
+        return; // Not initialized
+    }
+
+    PIX_SCOPED_EVENT(m_cmdList.Get(), "Emission Grid Build");
+
+    // Clear grid to zero
+    float clearValue[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    m_cmdList->ClearUnorderedAccessViewFloat(
+        m_descriptorAllocator->GetGPUHandle(m_emissionGridUavIndex),
+        m_descriptorAllocator->GetCPUHandle(m_emissionGridUavIndex),
+        m_emissionGridBuffer.Get(),
+        clearValue,
+        0, nullptr);
+
+    // Set pipeline
+    m_cmdList->SetComputeRootSignature(m_emissionGridRootSig.Get());
+    m_cmdList->SetPipelineState(m_emissionGridPSO.Get());
+
+    // Bind descriptor heap
+    ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+    m_cmdList->SetDescriptorHeaps(1, heaps);
+
+    // Parameter 0: Emission texture SRV (t0)
+    m_cmdList->SetComputeRootDescriptorTable(0, m_descriptorAllocator->GetGPUHandle(m_emissionSrvIndex));
+
+    // Parameter 1: Emission grid UAV (u0)
+    m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_emissionGridUavIndex));
+
+    // Parameter 2: Grid constants (b0)
+    struct GridConstants {
+        DirectX::XMUINT2 emissionTexSize;
+        UINT gridResolution;
+        float worldRadius;
+        DirectX::XMFLOAT4X4 viewMatrix;
+        DirectX::XMFLOAT4X4 projMatrix;
+        DirectX::XMFLOAT4X4 invViewProj;
+    } gridConstants;
+
+    gridConstants.emissionTexSize = DirectX::XMUINT2(m_width, m_height);
+    gridConstants.gridResolution = EMISSION_GRID_RESOLUTION;
+    gridConstants.worldRadius = 20.0f;  // Match particle system bounds
+
+    DirectX::XMMATRIX viewMat = m_camera->GetViewMatrix();
+    DirectX::XMMATRIX projMat = m_camera->GetProjectionMatrix();
+    DirectX::XMStoreFloat4x4(&gridConstants.viewMatrix, DirectX::XMMatrixTranspose(viewMat));
+    DirectX::XMStoreFloat4x4(&gridConstants.projMatrix, DirectX::XMMatrixTranspose(projMat));
+
+    DirectX::XMMATRIX invViewProj = DirectX::XMMatrixInverse(nullptr, viewMat * projMat);
+    DirectX::XMStoreFloat4x4(&gridConstants.invViewProj, DirectX::XMMatrixTranspose(invViewProj));
+
+    m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GridConstants) / 4, &gridConstants, 0);
+
+    // Dispatch: 8x8 thread groups covering emission buffer
+    const UINT threadGroupSize = 8;
+    const UINT dispatchX = (m_width + threadGroupSize - 1) / threadGroupSize;
+    const UINT dispatchY = (m_height + threadGroupSize - 1) / threadGroupSize;
+    m_cmdList->Dispatch(dispatchX, dispatchY, 1);
+
+    // UAV barrier
+    D3D12_RESOURCE_BARRIER uavBarrier{};
+    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    uavBarrier.UAV.pResource = m_emissionGridBuffer.Get();
+    m_cmdList->ResourceBarrier(1, &uavBarrier);
+}
+
+void App::computeParticleLighting() {
+    // Mode 9.2 Milestone 3: Apply grid-based lighting to particles
+    // TODO: Needs ParticleSystem to expose particle buffer SRV index
+    // For now, this function is disabled until particle system integration is complete
+    return;
+
+    /* DISABLED - Requires ParticleSystem SRV exposure
+    if (!m_particleLightingPSO || !m_meshParticleSystem || m_particleLightingUavIndex == UINT_MAX) {
+        return; // Not initialized
+    }
+
+    PIX_SCOPED_EVENT(m_cmdList.Get(), "Particle Lighting Compute");
+
+    // Set pipeline
+    m_cmdList->SetComputeRootSignature(m_particleLightingRootSig.Get());
+    m_cmdList->SetPipelineState(m_particleLightingPSO.Get());
+
+    // Bind descriptor heap
+    ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
+    m_cmdList->SetDescriptorHeaps(1, heaps);
+
+    // Get particle buffer SRV from particle system
+    UINT particleBufferSrvIndex = m_meshParticleSystem->GetParticleBufferSRVIndex();
+    if (particleBufferSrvIndex == UINT_MAX) {
+        return; // Particle buffer not ready
+    }
+
+    // Parameter 0: Particle buffer SRV (t0) + Emission grid SRV (t1)
+    m_cmdList->SetComputeRootDescriptorTable(0, m_descriptorAllocator->GetGPUHandle(particleBufferSrvIndex));
+
+    // Parameter 1: Particle lighting UAV (u0)
+    m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_particleLightingUavIndex));
+
+    // Parameter 2: Lighting constants (b0)
+    struct LightingConstants {
+        UINT particleCount;
+        UINT gridResolution;
+        float worldRadius;
+        float lightingStrength;
+        DirectX::XMFLOAT3 cameraPos;
+        float falloffRadius;
+    } lightingConstants;
+
+    lightingConstants.particleCount = m_mode9ParticleCount;
+    lightingConstants.gridResolution = EMISSION_GRID_RESOLUTION;
+    lightingConstants.worldRadius = 20.0f;
+    lightingConstants.lightingStrength = 1.0f;  // Adjustable parameter
+    lightingConstants.cameraPos = m_camera->GetPosition();
+    lightingConstants.falloffRadius = 3.0f;  // Lighting falls off over 3 units
+
+    m_cmdList->SetComputeRoot32BitConstants(2, sizeof(LightingConstants) / 4, &lightingConstants, 0);
+
+    // Dispatch: 256 threads per group, covering all particles
+    const UINT threadGroupSize = 256;
+    const UINT dispatchX = (m_mode9ParticleCount + threadGroupSize - 1) / threadGroupSize;
+    m_cmdList->Dispatch(dispatchX, 1, 1);
+
+    // UAV barrier
+    D3D12_RESOURCE_BARRIER uavBarrier{};
+    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    uavBarrier.UAV.pResource = m_particleLightingBuffer.Get();
+    m_cmdList->ResourceBarrier(1, &uavBarrier);
+    */
+}
+
 bool App::createShadowComputePipeline() {
     // Load shadow compute shader DXIL (DXR 1.1 RayQuery)
     LOGI("Loading shadow compute shader (DXR 1.1 RayQuery)...");
@@ -3153,6 +3493,174 @@ bool App::createShadowComputePipeline() {
     }
 
     LOGI("Shadow compute pipeline created successfully (DXR 1.1 RayQuery)");
+    return true;
+}
+
+bool App::createLightingComputePipelines() {
+    // Mode 9.2 Milestone 2-3: Create compute pipelines for spatial grid lighting
+
+    // ========== 1. Emission Grid Builder Pipeline ==========
+    LOGI("Loading emission grid builder shader...");
+    Microsoft::WRL::ComPtr<ID3DBlob> gridShaderBlob;
+    std::string errorMsg;
+    if (!FileLoader::LoadDXILShader("shaders/mode9/emission_grid_build.dxil", gridShaderBlob, errorMsg)) {
+        LOGE("Failed to load emission grid shader: " + errorMsg);
+        return false;
+    }
+    LOGI("Emission grid shader loaded (" + std::to_string(gridShaderBlob->GetBufferSize()) + " bytes)");
+
+    // Root signature for grid builder:
+    // Param 0: Emission texture SRV (t0)
+    // Param 1: Emission grid UAV (u0)
+    // Param 2: Grid constants (b0) - 8 DWORDs
+
+    D3D12_DESCRIPTOR_RANGE srvRange{};
+    srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange.NumDescriptors = 1;
+    srvRange.BaseShaderRegister = 0;  // t0
+    srvRange.RegisterSpace = 0;
+    srvRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_DESCRIPTOR_RANGE uavRange{};
+    uavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uavRange.NumDescriptors = 1;
+    uavRange.BaseShaderRegister = 0;  // u0
+    uavRange.RegisterSpace = 0;
+    uavRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER gridParams[3]{};
+
+    gridParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    gridParams[0].DescriptorTable.NumDescriptorRanges = 1;
+    gridParams[0].DescriptorTable.pDescriptorRanges = &srvRange;
+    gridParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    gridParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    gridParams[1].DescriptorTable.NumDescriptorRanges = 1;
+    gridParams[1].DescriptorTable.pDescriptorRanges = &uavRange;
+    gridParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    gridParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    gridParams[2].Constants.Num32BitValues = 48;  // GridConstants cbuffer (matrices + params)
+    gridParams[2].Constants.ShaderRegister = 0;   // b0
+    gridParams[2].Constants.RegisterSpace = 0;
+    gridParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC gridRootSigDesc{};
+    gridRootSigDesc.NumParameters = 3;
+    gridRootSigDesc.pParameters = gridParams;
+    gridRootSigDesc.NumStaticSamplers = 0;
+    gridRootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+    HRESULT hr = D3D12SerializeRootSignature(&gridRootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serializedRootSig, &errorBlob);
+    if (FAILED(hr)) {
+        LOGE("Failed to serialize emission grid root signature");
+        return false;
+    }
+
+    hr = m_device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(),
+                                       IID_PPV_ARGS(&m_emissionGridRootSig));
+    if (FAILED(hr)) {
+        LOGE("Failed to create emission grid root signature");
+        return false;
+    }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC computeDesc{};
+    computeDesc.pRootSignature = m_emissionGridRootSig.Get();
+    computeDesc.CS.pShaderBytecode = gridShaderBlob->GetBufferPointer();
+    computeDesc.CS.BytecodeLength = gridShaderBlob->GetBufferSize();
+
+    hr = m_device->CreateComputePipelineState(&computeDesc, IID_PPV_ARGS(&m_emissionGridPSO));
+    if (FAILED(hr)) {
+        LOGE("Failed to create emission grid PSO: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    LOGI("Emission grid pipeline created successfully");
+
+    // ========== 2. Particle Lighting Pipeline ==========
+    LOGI("Loading particle lighting shader...");
+    Microsoft::WRL::ComPtr<ID3DBlob> lightingShaderBlob;
+    if (!FileLoader::LoadDXILShader("shaders/mode9/particle_lighting.dxil", lightingShaderBlob, errorMsg)) {
+        LOGE("Failed to load particle lighting shader: " + errorMsg);
+        return false;
+    }
+    LOGI("Particle lighting shader loaded (" + std::to_string(lightingShaderBlob->GetBufferSize()) + " bytes)");
+
+    // Root signature for particle lighting:
+    // Param 0: Particle buffer SRV (t0)
+    // Param 1: Emission grid SRV (t1)
+    // Param 2: Particle lighting UAV (u0)
+    // Param 3: Lighting constants (b0) - 8 DWORDs
+
+    D3D12_DESCRIPTOR_RANGE lightingSrvRange{};
+    lightingSrvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    lightingSrvRange.NumDescriptors = 2;  // t0 and t1
+    lightingSrvRange.BaseShaderRegister = 0;
+    lightingSrvRange.RegisterSpace = 0;
+    lightingSrvRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_DESCRIPTOR_RANGE lightingUavRange{};
+    lightingUavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    lightingUavRange.NumDescriptors = 1;
+    lightingUavRange.BaseShaderRegister = 0;  // u0
+    lightingUavRange.RegisterSpace = 0;
+    lightingUavRange.OffsetInDescriptorsFromTableStart = 0;
+
+    D3D12_ROOT_PARAMETER lightingParams[3]{};
+
+    lightingParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    lightingParams[0].DescriptorTable.NumDescriptorRanges = 1;
+    lightingParams[0].DescriptorTable.pDescriptorRanges = &lightingSrvRange;
+    lightingParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    lightingParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    lightingParams[1].DescriptorTable.NumDescriptorRanges = 1;
+    lightingParams[1].DescriptorTable.pDescriptorRanges = &lightingUavRange;
+    lightingParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    lightingParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    lightingParams[2].Constants.Num32BitValues = 8;  // LightingConstants cbuffer
+    lightingParams[2].Constants.ShaderRegister = 0;  // b0
+    lightingParams[2].Constants.RegisterSpace = 0;
+    lightingParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC lightingRootSigDesc{};
+    lightingRootSigDesc.NumParameters = 3;
+    lightingRootSigDesc.pParameters = lightingParams;
+    lightingRootSigDesc.NumStaticSamplers = 0;
+    lightingRootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    serializedRootSig.Reset();
+    errorBlob.Reset();
+    hr = D3D12SerializeRootSignature(&lightingRootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serializedRootSig, &errorBlob);
+    if (FAILED(hr)) {
+        LOGE("Failed to serialize particle lighting root signature");
+        return false;
+    }
+
+    hr = m_device->CreateRootSignature(0, serializedRootSig->GetBufferPointer(), serializedRootSig->GetBufferSize(),
+                                       IID_PPV_ARGS(&m_particleLightingRootSig));
+    if (FAILED(hr)) {
+        LOGE("Failed to create particle lighting root signature");
+        return false;
+    }
+
+    computeDesc = {};
+    computeDesc.pRootSignature = m_particleLightingRootSig.Get();
+    computeDesc.CS.pShaderBytecode = lightingShaderBlob->GetBufferPointer();
+    computeDesc.CS.BytecodeLength = lightingShaderBlob->GetBufferSize();
+
+    hr = m_device->CreateComputePipelineState(&computeDesc, IID_PPV_ARGS(&m_particleLightingPSO));
+    if (FAILED(hr)) {
+        LOGE("Failed to create particle lighting PSO: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    LOGI("Particle lighting pipeline created successfully");
+    LOGI("Mode 9.2 spatial grid lighting pipelines ready");
     return true;
 }
 

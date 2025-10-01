@@ -321,6 +321,26 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionTexture;
 	D3D12_CPU_DESCRIPTOR_HANDLE m_emissionRtvHandle = {};
 	UINT m_emissionSrvIndex = UINT_MAX;
+	bool m_showEmissionDebug = false;  // F8: Toggle emission buffer visualization
+
+	// Mode 9.2 Milestone 2-3: Spatial grid lighting system
+	bool createEmissionGridResources();
+	bool createLightingComputePipelines();
+	void computeEmissionGrid();
+	void computeParticleLighting();
+
+	static constexpr UINT EMISSION_GRID_RESOLUTION = 64;  // 64^3 = 262,144 cells
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionGridBuffer;  // float4 per cell: rgb=emission, w=count
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleLightingBuffer;  // float4 per particle: rgb=light
+	UINT m_emissionGridUavIndex = UINT_MAX;
+	UINT m_emissionGridSrvIndex = UINT_MAX;
+	UINT m_particleLightingUavIndex = UINT_MAX;
+	UINT m_particleLightingSrvIndex = UINT_MAX;
+
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_emissionGridPSO;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_emissionGridRootSig;
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_particleLightingPSO;
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_particleLightingRootSig;
 
 	// Voxel particle system methods (Mode 6)
 	bool initializeVoxelSystem();
