@@ -329,7 +329,7 @@ private:
 	void computeEmissionGrid();
 	void computeParticleLighting();
 
-	static constexpr UINT EMISSION_GRID_RESOLUTION = 64;  // 64^3 = 262,144 cells
+	static constexpr UINT EMISSION_GRID_RESOLUTION = 16;  // 16^3 = 4,096 cells (was 64 = 262K cells, too slow)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionGridBuffer;  // float4 per cell: rgb=emission, w=count
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleLightingBuffer;  // float4 per particle: rgb=light
 	UINT m_emissionGridUavIndex = UINT_MAX;
@@ -337,8 +337,11 @@ private:
 	UINT m_particleLightingUavIndex = UINT_MAX;
 	UINT m_particleLightingSrvIndex = UINT_MAX;
 
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_gridClearPSO;  // Clear grid to zero
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_gridClearRootSig;
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_emissionGridPSO;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_emissionGridRootSig;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_gridConstantsBuffer;  // CBV for grid builder shader
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_particleLightingPSO;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_particleLightingRootSig;
 

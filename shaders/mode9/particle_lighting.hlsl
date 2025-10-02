@@ -29,7 +29,8 @@ struct Particle
 StructuredBuffer<Particle> particles : register(t0);
 
 // Input: Emission grid (output from emission_grid_build.hlsl)
-StructuredBuffer<float4> emissionGrid : register(t1);
+// Reading as ByteAddressBuffer to match UAV type
+ByteAddressBuffer emissionGrid : register(t1);
 
 // Output: Lighting contribution per particle (RGB = additive light color, A = unused)
 RWStructuredBuffer<float4> particleLighting : register(u0);
@@ -57,7 +58,14 @@ float3 SampleGrid(int3 coord)
         return float3(0, 0, 0);
 
     uint index = GridCoordToIndex((uint3)coord);
-    float4 cell = emissionGrid[index];
+    uint baseAddr = index * 16;  // 16 bytes per float4
+
+    // Read float4 from ByteAddressBuffer
+    float4 cell;
+    cell.x = asfloat(emissionGrid.Load(baseAddr + 0));
+    cell.y = asfloat(emissionGrid.Load(baseAddr + 4));
+    cell.z = asfloat(emissionGrid.Load(baseAddr + 8));
+    cell.w = asfloat(emissionGrid.Load(baseAddr + 12));
 
     // Normalize by particle count to get average emission in cell
     if (cell.w > 0.0)

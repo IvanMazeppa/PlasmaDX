@@ -83,6 +83,11 @@ public:
     uint32_t GetParticleCount() const { return m_particleCount; }
     float GetParticleSize() const { return m_particleSize; }
 
+    // Mode 9.2: Particle lighting support
+    bool CreateParticleBufferSRV(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE srvHandle);
+    void SetParticleBufferSRVIndex(UINT index) { m_particleBufferSrvIndex = index; }
+    UINT GetParticleBufferSRVIndex() const { return m_particleBufferSrvIndex; }
+
 private:
     bool CreateBuffers();
     bool CreateComputePipeline();
@@ -127,6 +132,9 @@ private:
     // Render parameters
     float m_particleSize = 5.0f;
     float m_colorTempOffset = 0.0f;
+
+    // Mode 9.2: Particle buffer SRV for lighting compute
+    UINT m_particleBufferSrvIndex = UINT_MAX;
     float m_colorTempScale = 1.0f;
 
     // NASA-quality accretion disk parameters

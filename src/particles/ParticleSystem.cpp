@@ -58,6 +58,26 @@ void ParticleSystem::Shutdown() {
     // Resources will be automatically released via ComPtr
 }
 
+bool ParticleSystem::CreateParticleBufferSRV(ID3D12Device* device, D3D12_CPU_DESCRIPTOR_HANDLE srvHandle) {
+    // Mode 9.2: Create SRV for particle buffer to allow lighting compute shader to read particle positions
+    if (!m_particleBuffer) {
+        LOGE("Cannot create particle buffer SRV - particle buffer not initialized");
+        return false;
+    }
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Buffer.FirstElement = 0;
+    srvDesc.Buffer.NumElements = m_particleCount;
+    srvDesc.Buffer.StructureByteStride = sizeof(Particle);  // 64 bytes per particle
+    srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+    device->CreateShaderResourceView(m_particleBuffer.Get(), &srvDesc, srvHandle);
+    return true;
+}
+
 bool ParticleSystem::CreateBuffers() {
     // Create particle buffer
     CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
