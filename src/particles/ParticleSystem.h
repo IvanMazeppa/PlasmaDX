@@ -64,7 +64,8 @@ public:
                         UINT width, UINT height,
                         D3D12_GPU_DESCRIPTOR_HANDLE shadowMapSrv = {},
                         uint32_t mode9SubMode = 0,
-                        D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle = {});
+                        D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle = {},
+                        D3D12_GPU_DESCRIPTOR_HANDLE particleLightingSrv = {});
 
     // Runtime adjustable parameters
     void AdjustGravity(float delta) { m_gravityStrength += delta; }

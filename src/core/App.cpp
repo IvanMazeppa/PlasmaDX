@@ -2277,10 +2277,14 @@ void App::renderFrameDXR() {
 					shadowMapGpuHandle = m_descriptorAllocator->GetGPUHandle(m_shadowMapSrvIndex);
 				}
 
+				// Mode 9.2: Get particle lighting SRV GPU handle
+				D3D12_GPU_DESCRIPTOR_HANDLE lightingSrvGpuHandle = m_descriptorAllocator->GetGPUHandle(m_particleLightingSrvIndex);
+
 				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
 					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
 					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode),
-					m_emissionRtvHandle);  // Mode 9.2: Pass emission RTV for dual RT output
+					m_emissionRtvHandle,  // Mode 9.2: Pass emission RTV for dual RT output
+					lightingSrvGpuHandle);  // Mode 9.2: Pass particle lighting SRV
 
 				// Mode 9.2 Milestone 2-3: Spatial grid lighting
 				// FIXED: Descriptor table mismatch + resource state transitions

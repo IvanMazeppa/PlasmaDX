@@ -1,0 +1,12 @@
+Mode 9.2 Lighting Working Build - Thu Oct  2 03:46:04 BST 2025
+Commit: 98543f6788d528a94881e37cb4beb24bc30a8883
+Branch: 0.5.7
+
+Key fixes applied:
+- Fixed invalid D3D12_BUFFER_SRV_FLAG_RAW (doesn't exist for SRVs)
+- Changed emission grid SRV to DXGI_FORMAT_R32_UINT typed view
+- Fixed D3D12_HEAP_PROPERTIES initialization for constant buffer
+- Grid resolution: 16^3 (4096 cells)
+- ByteAddressBuffer read via typed R32_UINT SRV
+
+Status: NO CRASHES, runs at 80fps (recovers gradually)

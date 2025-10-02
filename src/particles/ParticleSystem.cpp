@@ -207,21 +207,26 @@ bool ParticleSystem::CreateComputePipeline() {
 }
 
 bool ParticleSystem::CreateMeshPipeline() {
-    // Create root signature for mesh pipeline (Mode 9.1+ shadow map support)
+    // Create root signature for mesh pipeline (Mode 9.2+ lighting support)
     // Param 0: Particle buffer SRV (t0)
     // Param 1: Render constants CBV (b0)
     // Param 2: Shadow map SRV (t1) - descriptor table
-    // Param 3: Mode params CBV (b1) - 32-bit constants for sub-mode flag
-    // Param 4: Static sampler (s0) for shadow map
+    // Param 3: Particle lighting SRV (t2) - descriptor table (Mode 9.2)
+    // Param 4: Mode params CBV (b1) - 32-bit constants for sub-mode flag
+    // Param 5: Static sampler (s0) for shadow map
 
     CD3DX12_DESCRIPTOR_RANGE1 shadowMapRange;
     shadowMapRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // 1 SRV at t1
 
-    CD3DX12_ROOT_PARAMETER1 rootParams[4];
+    CD3DX12_DESCRIPTOR_RANGE1 lightingRange;
+    lightingRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2); // 1 SRV at t2
+
+    CD3DX12_ROOT_PARAMETER1 rootParams[5];
     rootParams[0].InitAsShaderResourceView(0); // Particle buffer (SRV t0 for mesh shader)
     rootParams[1].InitAsConstantBufferView(0); // Render constants (CBV b0)
     rootParams[2].InitAsDescriptorTable(1, &shadowMapRange); // Shadow map (SRV t1)
-    rootParams[3].InitAsConstants(4, 1); // Mode params (4 dwords = 16 bytes at b1)
+    rootParams[3].InitAsDescriptorTable(1, &lightingRange); // Particle lighting (SRV t2)
+    rootParams[4].InitAsConstants(4, 1); // Mode params (4 dwords = 16 bytes at b1)
 
     // Static sampler for shadow map (s0)
     CD3DX12_STATIC_SAMPLER_DESC shadowSampler(
@@ -401,7 +406,8 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
                                    UINT width, UINT height,
                                    D3D12_GPU_DESCRIPTOR_HANDLE shadowMapSrv,
                                    uint32_t mode9SubMode,
-                                   D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle) {
+                                   D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle,
+                                   D3D12_GPU_DESCRIPTOR_HANDLE particleLightingSrv) {
     static bool s_firstCall = true;
     if (s_firstCall) {
         LOGI("ParticleSystem::RenderParticles called - starting mesh shader rendering");
@@ -479,9 +485,16 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     }
     cmdList6->SetGraphicsRootDescriptorTable(2, shadowMapSrv);
 
+    // Particle lighting descriptor table (param 3) - Mode 9.2
+    if (particleLightingSrv.ptr == 0) {
+        LOGE("CRITICAL: Particle lighting descriptor is NULL! Aborting render to prevent GPU crash");
+        return;
+    }
+    cmdList6->SetGraphicsRootDescriptorTable(3, particleLightingSrv);
+
     // Mode params (b1): 4 dwords = { mode9SubMode, padding, padding, padding }
     uint32_t modeParams[4] = { mode9SubMode, 0, 0, 0 };
-    cmdList6->SetGraphicsRoot32BitConstants(3, 4, modeParams, 0);
+    cmdList6->SetGraphicsRoot32BitConstants(4, 4, modeParams, 0);
 
     // Dispatch mesh shader workgroups
     // Each workgroup handles 32 particles, creating 4 vertices and 2 triangles per particle

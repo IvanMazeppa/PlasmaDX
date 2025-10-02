@@ -26,6 +26,7 @@ struct VertexOutput {
     float alpha : COLOR1;
     float3 worldPos : TEXCOORD1;  // World position for shadow mapping
     float temperature : TEXCOORD2;  // Temperature for emission calculation (Mode 9.2)
+    float3 lighting : TEXCOORD3;  // Particle-to-particle lighting (Mode 9.2)
 };
 
 // Mode 9 sub-mode flag for shadow map support
@@ -36,6 +37,7 @@ cbuffer ModeParams : register(b1) {
 
 StructuredBuffer<Particle> particles : register(t0);
 Texture2D<float> shadowMap : register(t1);  // Shadow map (Mode 9.1+)
+StructuredBuffer<float4> particleLighting : register(t2);  // Particle lighting (Mode 9.2+)
 SamplerState shadowSampler : register(s0);
 ConstantBuffer<RenderConstants> renderConstants : register(b0);
 
@@ -95,6 +97,9 @@ void main(
 
     Particle p = particles[particleIndex];
 
+    // Mode 9.2: Read particle lighting contribution
+    float3 lighting = particleLighting[particleIndex].rgb;
+
     // Calculate camera-facing billboard vectors (matches Vulkan reference)
     float3 worldPos = p.position;
     float3 toCamera = renderConstants.cameraPos - worldPos;
@@ -123,6 +128,7 @@ void main(
     verts[vertexIndex + 0].alpha = alpha;
     verts[vertexIndex + 0].worldPos = worldPos;
     verts[vertexIndex + 0].temperature = p.temperature;
+    verts[vertexIndex + 0].lighting = lighting;
 
     // Bottom-right
     float3 pos1 = worldPos + right - up;
@@ -132,6 +138,7 @@ void main(
     verts[vertexIndex + 1].alpha = alpha;
     verts[vertexIndex + 1].worldPos = worldPos;
     verts[vertexIndex + 1].temperature = p.temperature;
+    verts[vertexIndex + 1].lighting = lighting;
 
     // Top-left
     float3 pos2 = worldPos - right + up;
@@ -141,6 +148,7 @@ void main(
     verts[vertexIndex + 2].alpha = alpha;
     verts[vertexIndex + 2].worldPos = worldPos;
     verts[vertexIndex + 2].temperature = p.temperature;
+    verts[vertexIndex + 2].lighting = lighting;
 
     // Top-right
     float3 pos3 = worldPos + right + up;
@@ -150,6 +158,7 @@ void main(
     verts[vertexIndex + 3].alpha = alpha;
     verts[vertexIndex + 3].worldPos = worldPos;
     verts[vertexIndex + 3].temperature = p.temperature;
+    verts[vertexIndex + 3].lighting = lighting;
 
     // Create 2 triangles for the quad
     // Triangle 1: bottom-left, bottom-right, top-left
