@@ -1,0 +1,111 @@
+Mode 9.2 Immediate Visibility Fix
+==================================
+Date: 2025-10-02
+Author: DXR Diagnostics Agent
+
+ROOT CAUSE ANALYSIS:
+--------------------
+Based on shader and configuration analysis, the most likely reason for invisible
+particle-to-particle lighting:
+
+1. **Temperature threshold too high (10000K)**
+   - Most particles in a typical accretion disk are 800-8000K
+   - Only the hottest core particles exceed 10000K
+   - This means very few particles emit light into the grid
+
+2. **Lighting values too small**
+   - Even with 5x boost, computed lighting may be imperceptible
+   - Grid-based lighting with 16^3 resolution and inverse-square falloff
+     produces very small values
+
+3. **Grid resolution vs. particle distribution**
+   - 16^3 grid covering [-20, +20] = 2.5 unit cells
+   - Particle clusters may fall into different cells, missing each other
+
+IMMEDIATE FIX (no diagnostics required):
+-----------------------------------------
+Apply these parameter tweaks to make the effect visible:
+
+--- App.cpp (computeEmissionGrid) line 3480
+-    gridConstants.emissionThreshold = 10000.0f;  // Hot particles emit light (>10000K)
++    gridConstants.emissionThreshold = 3000.0f;  // Lower threshold for more emitters (was 10000K)
+
+--- App.cpp (computeParticleLighting) line 3554
+-    lightingConstants.lightingStrength = 1.0f;  // Adjustable parameter
++    lightingConstants.lightingStrength = 15.0f;  // Boosted for visibility (was 1.0)
+
+--- App.cpp (computeParticleLighting) line 3556
+-    lightingConstants.falloffRadius = 3.0f;  // Lighting falls off over 3 units
++    lightingConstants.falloffRadius = 8.0f;  // Wider influence radius (was 3.0)
+
+--- particle_mesh.hlsl line 217
+-        color += input.lighting * 5.0;  // 5x boost for visibility
++        color += input.lighting * 25.0;  // 25x boost for visibility (was 5x)
+
+--- emission_grid_build.hlsl line 102 (optional - increase emission strength)
+-    float emissionStrength = pow(normalizedTemp, 1.5) * 3.0;
++    float emissionStrength = pow(normalizedTemp, 1.2) * 10.0;  // Stronger, less falloff
+
+
+RATIONALE:
+----------
+1. **3000K threshold**: Captures warm-to-hot particles (much broader range)
+2. **15x lighting strength**: Amplifies the grid-based lighting computation
+3. **8.0 unit falloff**: Allows particles to influence neighbors 3.2 cells away
+4. **25x pixel boost**: Makes even small values visible on screen
+5. **10x emission strength**: Base emission is stronger before grid accumulation
+
+COMBINED AMPLIFICATION:
+15 (strength) × 25 (pixel boost) × 3.3 (emission) = ~1250x total boost
+This should make the effect clearly visible even with small base values.
+
+RISK ASSESSMENT:
+----------------
+- Low risk: All changes are multiplicative constants
+- Reversible: Can easily dial back if too strong
+- No shader recompile needed for App.cpp changes
+- Shader changes require recompile but are trivial
+
+EXPECTED RESULT:
+----------------
+After applying these changes, you should see:
+1. Bright orange/yellow glow around hot particle clusters
+2. Color bleeding between nearby particles
+3. Visible lighting gradients in dense regions
+4. Effect strongest in accretion disk core
+
+If STILL no effect after this:
+-------------------------------
+Then the issue is more fundamental (data flow broken):
+1. Emission grid not being written (atomics failing?)
+2. Particle lighting buffer not being read (descriptor issue?)
+3. Resource state transitions incorrect
+4. SBT/descriptor binding wrong
+
+At that point, apply the full diagnostic patch to identify the exact failure point.
+
+APPLICATION INSTRUCTIONS:
+-------------------------
+1. Apply shader changes first:
+   - Edit particle_mesh.hlsl line 217 (change 5.0 to 25.0)
+   - Edit emission_grid_build.hlsl line 102 (change 3.0 to 10.0)
+   - Recompile shaders: dxc -T cs_6_6 ... for each shader
+
+2. Apply App.cpp changes:
+   - Line 3480: 10000.0f → 3000.0f
+   - Line 3554: 1.0f → 15.0f
+   - Line 3556: 3.0f → 8.0f
+   - Rebuild C++ project
+
+3. Run and observe:
+   - Switch to Mode 9 Sub-mode 2 (Particle Relight)
+   - Look for orange glow in particle clusters
+   - Expect visible effect immediately
+
+If you see flickering instead of steady glow:
+- Reduce falloffRadius back to 5.0
+- Reduce pixel boost to 15.0
+
+If effect is TOO strong (everything blown out):
+- Reduce lightingStrength to 5.0
+- Reduce pixel boost to 10.0

@@ -305,10 +305,11 @@ bool ParticleSystem::CreateMeshPipeline() {
     rasterizerDesc.CullMode = D3D12_CULL_MODE_NONE; // No culling for billboards
     pipelineStateStream.rasterizer = rasterizerDesc;
 
-    // Render target formats (must match backbuffer format)
+    // Render target formats (Mode 9.2: Dual render targets for color + emission)
     D3D12_RT_FORMAT_ARRAY renderTargetFormats = {};
-    renderTargetFormats.NumRenderTargets = 1;
-    renderTargetFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // Match swapchain backbuffer format
+    renderTargetFormats.NumRenderTargets = 2;  // Color + emission
+    renderTargetFormats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;      // Color (backbuffer)
+    renderTargetFormats.RTFormats[1] = DXGI_FORMAT_R11G11B10_FLOAT;     // Emission buffer
     pipelineStateStream.renderTargetFormats = renderTargetFormats;
 
     // Sample description
@@ -371,7 +372,12 @@ void ParticleSystem::UpdatePhysics(ID3D12GraphicsCommandList* cmdList, float del
         memcpy(mappedData, &constants, sizeof(ParticleConstants));
         m_particleConstantsBuffer->Unmap(0, nullptr);
     } else {
-        LOGE("Failed to map particle constants buffer");
+        LOGE("Failed to map particle constants buffer - HRESULT: 0x" +
+             std::to_string(static_cast<uint32_t>(hr)));
+        if (hr == DXGI_ERROR_DEVICE_REMOVED) {
+            HRESULT reason = m_device->GetDeviceRemovedReason();
+            LOGE("DEVICE REMOVED! Reason: 0x" + std::to_string(static_cast<uint32_t>(reason)));
+        }
         return;
     }
 
@@ -427,10 +433,14 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
     }
 
     // Set render targets and viewport for mesh shader rendering
-    // Mode 9.2: Use dual render targets (color + emission) if emission RTV provided
+    // CRITICAL FIX: PSO is configured for 2 RTVs, must ALWAYS bind 2 (even if second is unused)
+    // Mode 9.2: Use dual render targets (color + emission)
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2] = { rtvHandle, emissionRtvHandle };
-    UINT numRTVs = (emissionRtvHandle.ptr != 0 && mode9SubMode >= 2) ? 2 : 1;
-    cmdList6->OMSetRenderTargets(numRTVs, rtvHandles, FALSE, nullptr);
+    // If no emission RTV, use main RTV for both (writes are discarded by pixel shader logic)
+    if (emissionRtvHandle.ptr == 0) {
+        rtvHandles[1] = rtvHandle;  // Dummy RTV to match PSO configuration
+    }
+    cmdList6->OMSetRenderTargets(2, rtvHandles, FALSE, nullptr);  // Always bind 2 RTVs
 
     // Set viewport to match render target dimensions
     D3D12_VIEWPORT viewport = {};
@@ -468,7 +478,9 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
         memcpy(mappedData, &renderConstants, sizeof(RenderConstants));
         m_renderConstantsBuffer->Unmap(0, nullptr);
     } else {
-        LOGE("Failed to map render constants buffer for upload");
+        LOGE("Failed to map render constants buffer - HRESULT: 0x" +
+             std::to_string(static_cast<uint32_t>(hr)) +
+             " Buffer ptr: " + std::to_string(m_renderConstantsBuffer.Get() != nullptr));
         return;
     }
 

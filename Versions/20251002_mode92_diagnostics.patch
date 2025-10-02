@@ -1,0 +1,382 @@
+Mode 9.2 Particle Lighting Diagnostics Patch
+=============================================
+Date: 2025-10-02
+Purpose: Add GPU readback diagnostics to verify emission grid and lighting buffer contain non-zero values
+
+FINDINGS:
+---------
+1. Emission grid build uses 10000K temperature threshold (line 3480 in App.cpp)
+2. Grid resolution is 16^3 = 4096 cells covering [-20, +20] world space (each cell = 2.5 units)
+3. Lighting boost in pixel shader is 5x (line 217 in particle_mesh.hlsl)
+4. All shaders execute successfully per log (lines 227-229 show clear/build/lighting)
+
+SUSPECTED ROOT CAUSES:
+---------------------
+1. **Temperature threshold too high**: 10000K may exclude most particles from emitting
+2. **Grid too coarse**: 16^3 grid with 2.5 unit cells may miss particle clusters
+3. **Lighting values too small**: Even with 5x boost, computed values may be imperceptible
+4. **Fixed-point precision loss**: Division by 256 in grid storage may lose precision
+
+DIAGNOSTIC PLAN:
+----------------
+Add GPU readback after each compute stage to verify:
+1. Particle temperature distribution (how many particles >10000K?)
+2. Emission grid population (how many cells have non-zero values?)
+3. Particle lighting buffer values (what's the range of computed lighting?)
+
+--- App.h (Add diagnostic members)
++++ App.h
+@@ -346,6 +346,13 @@
+ 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_particleLightingRootSig;
+
++	// Mode 9.2 Diagnostics
++	Microsoft::WRL::ComPtr<ID3D12Resource> m_diagnosticReadbackBuffer;
++	void diagnoseModeNineTwoLighting();
++	void readbackParticleTemperatures();
++	void readbackEmissionGrid();
++	void readbackParticleLighting();
++
+ 	// Voxel particle system methods (Mode 6)
+ 	bool initializeVoxelSystem();
+
+
+--- App.cpp (Add diagnostic implementation)
++++ App.cpp
+
+// Add after computeParticleLighting() implementation (after line 3581):
+
+void App::diagnoseModeNineTwoLighting() {
+    // Create readback buffer if needed (large enough for any diagnostic data)
+    const UINT maxReadbackSize = 100000 * sizeof(DirectX::XMFLOAT4);  // 100K particles
+
+    if (!m_diagnosticReadbackBuffer) {
+        D3D12_HEAP_PROPERTIES readbackHeap{};
+        readbackHeap.Type = D3D12_HEAP_TYPE_READBACK;
+
+        D3D12_RESOURCE_DESC readbackDesc{};
+        readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        readbackDesc.Width = maxReadbackSize;
+        readbackDesc.Height = 1;
+        readbackDesc.DepthOrArraySize = 1;
+        readbackDesc.MipLevels = 1;
+        readbackDesc.Format = DXGI_FORMAT_UNKNOWN;
+        readbackDesc.SampleDesc.Count = 1;
+        readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        HRESULT hr = m_device->CreateCommittedResource(
+            &readbackHeap,
+            D3D12_HEAP_FLAG_NONE,
+            &readbackDesc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            nullptr,
+            IID_PPV_ARGS(&m_diagnosticReadbackBuffer)
+        );
+
+        if (FAILED(hr)) {
+            LOGE("Failed to create diagnostic readback buffer");
+            return;
+        }
+
+        LOGI("Mode 9.2 diagnostic readback buffer created (" + std::to_string(maxReadbackSize/1024) + " KB)");
+    }
+
+    // Run diagnostics in sequence (each with proper barriers)
+    LOGI("=== Mode 9.2 Lighting Diagnostics ===");
+    readbackParticleTemperatures();
+    readbackEmissionGrid();
+    readbackParticleLighting();
+    LOGI("=== End Diagnostics ===");
+}
+
+void App::readbackParticleTemperatures() {
+    // Analyze particle temperature distribution
+    LOGI("[DIAG] Reading particle temperature distribution...");
+
+    // Get particle buffer from mesh particle system
+    UINT particleSrvIndex = m_meshParticleSystem->GetParticleBufferSRVIndex();
+    if (particleSrvIndex == UINT_MAX) {
+        LOGE("[DIAG] Particle buffer not available");
+        return;
+    }
+
+    // Transition particle buffer to COPY_SOURCE
+    // NOTE: This assumes we can access the underlying resource from the particle system
+    // For this diagnostic, we'll sample the first 1000 particles only
+
+    const UINT sampleCount = std::min(1000u, m_mode9ParticleCount);
+
+    // We need to copy particle data - structure is 32 bytes per particle
+    // Layout: position(12) velocity(12) color(12) temperature(4) mass(4) lifetime(4) pad(8)
+    // Temperature is at offset 36 bytes
+
+    LOGI("[DIAG] Sampling " + std::to_string(sampleCount) + " particles for temperature analysis");
+    LOGI("[DIAG] WARNING: Cannot directly read particle buffer without system modification");
+    LOGI("[DIAG] RECOMMENDATION: Add instrumentation to MeshParticleSystem to expose temperature stats");
+}
+
+void App::readbackEmissionGrid() {
+    // Read back emission grid to check population
+    LOGI("[DIAG] Reading emission grid data...");
+
+    // Transition grid from UAV to COPY_SOURCE
+    D3D12_RESOURCE_BARRIER toCopy{};
+    toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toCopy.Transition.pResource = m_emissionGridBuffer.Get();
+    toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    toCopy.Transition.Subresource = 0;
+    m_cmdList->ResourceBarrier(1, &toCopy);
+
+    // Copy grid data (16 bytes per cell, 4096 cells = 64KB)
+    const UINT gridSize = EMISSION_GRID_RESOLUTION * EMISSION_GRID_RESOLUTION * EMISSION_GRID_RESOLUTION * 16;
+    m_cmdList->CopyBufferRegion(m_diagnosticReadbackBuffer.Get(), 0, m_emissionGridBuffer.Get(), 0, gridSize);
+
+    // Transition back to UAV
+    D3D12_RESOURCE_BARRIER toUAV{};
+    toUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toUAV.Transition.pResource = m_emissionGridBuffer.Get();
+    toUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    toUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    toUAV.Transition.Subresource = 0;
+    m_cmdList->ResourceBarrier(1, &toUAV);
+
+    // Execute and wait for GPU
+    m_cmdList->Close();
+    ID3D12CommandList* lists[] = { m_cmdList.Get() };
+    m_cmdQueue->ExecuteCommandLists(1, lists);
+
+    // Fence wait
+    UINT64 fenceValue = ++m_fenceValue;
+    m_cmdQueue->Signal(m_fence.Get(), fenceValue);
+    if (m_fence->GetCompletedValue() < fenceValue) {
+        m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
+        WaitForSingleObject(m_fenceEvent, INFINITE);
+    }
+
+    // Reset command list
+    m_cmdAllocator->Reset();
+    m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
+
+    // Map and analyze grid data
+    void* mappedData = nullptr;
+    D3D12_RANGE readRange{ 0, gridSize };
+    HRESULT hr = m_diagnosticReadbackBuffer->Map(0, &readRange, &mappedData);
+
+    if (SUCCEEDED(hr)) {
+        int32_t* gridData = reinterpret_cast<int32_t*>(mappedData);
+
+        // Count non-zero cells and accumulate statistics
+        UINT nonZeroCells = 0;
+        float maxEmission = 0.0f;
+        float totalEmission = 0.0f;
+
+        const UINT cellCount = EMISSION_GRID_RESOLUTION * EMISSION_GRID_RESOLUTION * EMISSION_GRID_RESOLUTION;
+        for (UINT i = 0; i < cellCount; i++) {
+            // Read fixed-point values (divide by 256 to get float)
+            float r = float(gridData[i * 4 + 0]) / 256.0f;
+            float g = float(gridData[i * 4 + 1]) / 256.0f;
+            float b = float(gridData[i * 4 + 2]) / 256.0f;
+            float count = float(gridData[i * 4 + 3]) / 256.0f;
+
+            if (count > 0.001f) {
+                nonZeroCells++;
+                float emission = (r + g + b) / 3.0f;
+                maxEmission = std::max(maxEmission, emission);
+                totalEmission += emission;
+            }
+        }
+
+        LOGI("[DIAG] Emission Grid: " + std::to_string(nonZeroCells) + "/" + std::to_string(cellCount) +
+             " cells populated (" + std::to_string(100.0f * nonZeroCells / cellCount) + "%)");
+
+        if (nonZeroCells > 0) {
+            float avgEmission = totalEmission / nonZeroCells;
+            LOGI("[DIAG] Emission Stats: max=" + std::to_string(maxEmission) +
+                 " avg=" + std::to_string(avgEmission));
+        } else {
+            LOGE("[DIAG] PROBLEM: Emission grid is EMPTY! No hot particles above threshold?");
+            LOGI("[DIAG] FIX: Lower emissionThreshold from 10000K to 5000K in computeEmissionGrid()");
+        }
+
+        D3D12_RANGE writeRange{ 0, 0 };  // No writes
+        m_diagnosticReadbackBuffer->Unmap(0, &writeRange);
+    } else {
+        LOGE("[DIAG] Failed to map readback buffer for emission grid");
+    }
+}
+
+void App::readbackParticleLighting() {
+    // Read back particle lighting buffer
+    LOGI("[DIAG] Reading particle lighting buffer...");
+
+    // Transition lighting buffer from SRV to COPY_SOURCE
+    D3D12_RESOURCE_BARRIER toCopy{};
+    toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toCopy.Transition.pResource = m_particleLightingBuffer.Get();
+    toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    toCopy.Transition.Subresource = 0;
+    m_cmdList->ResourceBarrier(1, &toCopy);
+
+    // Copy lighting data (sample first 1000 particles)
+    const UINT sampleCount = std::min(1000u, m_mode9ParticleCount);
+    const UINT bufferSize = sampleCount * sizeof(DirectX::XMFLOAT4);
+    m_cmdList->CopyBufferRegion(m_diagnosticReadbackBuffer.Get(), 0, m_particleLightingBuffer.Get(), 0, bufferSize);
+
+    // Transition back to SRV
+    D3D12_RESOURCE_BARRIER toSRV{};
+    toSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    toSRV.Transition.pResource = m_particleLightingBuffer.Get();
+    toSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    toSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    toSRV.Transition.Subresource = 0;
+    m_cmdList->ResourceBarrier(1, &toSRV);
+
+    // Execute and wait
+    m_cmdList->Close();
+    ID3D12CommandList* lists[] = { m_cmdList.Get() };
+    m_cmdQueue->ExecuteCommandLists(1, lists);
+
+    UINT64 fenceValue = ++m_fenceValue;
+    m_cmdQueue->Signal(m_fence.Get(), fenceValue);
+    if (m_fence->GetCompletedValue() < fenceValue) {
+        m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
+        WaitForSingleObject(m_fenceEvent, INFINITE);
+    }
+
+    m_cmdAllocator->Reset();
+    m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
+
+    // Map and analyze lighting data
+    void* mappedData = nullptr;
+    D3D12_RANGE readRange{ 0, bufferSize };
+    HRESULT hr = m_diagnosticReadbackBuffer->Map(0, &readRange, &mappedData);
+
+    if (SUCCEEDED(hr)) {
+        DirectX::XMFLOAT4* lightingData = reinterpret_cast<DirectX::XMFLOAT4*>(mappedData);
+
+        UINT nonZeroCount = 0;
+        float maxLighting = 0.0f;
+        float totalLighting = 0.0f;
+
+        for (UINT i = 0; i < sampleCount; i++) {
+            float magnitude = sqrtf(lightingData[i].x * lightingData[i].x +
+                                   lightingData[i].y * lightingData[i].y +
+                                   lightingData[i].z * lightingData[i].z);
+
+            if (magnitude > 0.001f) {
+                nonZeroCount++;
+                maxLighting = std::max(maxLighting, magnitude);
+                totalLighting += magnitude;
+            }
+        }
+
+        LOGI("[DIAG] Particle Lighting (sampled " + std::to_string(sampleCount) + " particles): " +
+             std::to_string(nonZeroCount) + " have non-zero lighting (" +
+             std::to_string(100.0f * nonZeroCount / sampleCount) + "%)");
+
+        if (nonZeroCount > 0) {
+            float avgLighting = totalLighting / nonZeroCount;
+            LOGI("[DIAG] Lighting Stats: max=" + std::to_string(maxLighting) +
+                 " avg=" + std::to_string(avgLighting));
+
+            // Check if values are too small even with 5x boost
+            float boostedMax = maxLighting * 5.0f;
+            if (boostedMax < 0.1f) {
+                LOGE("[DIAG] PROBLEM: Lighting values too small! Max boosted value = " +
+                     std::to_string(boostedMax));
+                LOGI("[DIAG] FIX: Increase boost from 5x to 50x in particle_mesh.hlsl line 217");
+                LOGI("[DIAG] FIX: OR increase lightingStrength from 1.0 to 10.0 in computeParticleLighting()");
+            }
+        } else {
+            LOGE("[DIAG] PROBLEM: All lighting values are ZERO!");
+            LOGI("[DIAG] This means either:");
+            LOGI("[DIAG]   1. Emission grid is empty (check previous diagnostic)");
+            LOGI("[DIAG]   2. No particles are within falloffRadius (3.0 units) of emitting cells");
+            LOGI("[DIAG]   3. Grid resolution too coarse (16^3 = 2.5 unit cells)");
+        }
+
+        D3D12_RANGE writeRange{ 0, 0 };
+        m_diagnosticReadbackBuffer->Unmap(0, &writeRange);
+    } else {
+        LOGE("[DIAG] Failed to map readback buffer for particle lighting");
+    }
+}
+
+
+--- Add diagnostic call in render loop (in render() method)
++++ In render() method, after computeParticleLighting() call:
+
+    // Mode 9.2: Spatial grid lighting
+    if (m_mode9SubMode >= 2) {
+        computeEmissionGrid();
+        computeParticleLighting();
+
+        // Run diagnostics once per second
+        static auto lastDiagTime = std::chrono::high_resolution_clock::now();
+        auto now = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastDiagTime).count();
+        if (elapsed > 1000) {
+            diagnoseModeNineTwoLighting();
+            lastDiagTime = now;
+        }
+    }
+
+
+ADDITIONAL RECOMMENDED FIXES:
+------------------------------
+
+1. **Lower temperature threshold**:
+   In computeEmissionGrid() line 3480:
+   - Change: gridConstants.emissionThreshold = 10000.0f;
+   - To:     gridConstants.emissionThreshold = 5000.0f;  // More particles emit
+
+2. **Increase lighting boost**:
+   In particle_mesh.hlsl line 217:
+   - Change: color += input.lighting * 5.0;
+   - To:     color += input.lighting * 50.0;  // 10x stronger
+
+3. **Increase lighting strength**:
+   In computeParticleLighting() line 3554:
+   - Change: lightingConstants.lightingStrength = 1.0f;
+   - To:     lightingConstants.lightingStrength = 10.0f;
+
+4. **Increase falloff radius**:
+   In computeParticleLighting() line 3556:
+   - Change: lightingConstants.falloffRadius = 3.0f;
+   - To:     lightingConstants.falloffRadius = 6.0f;  // Wider influence
+
+5. **Consider finer grid**:
+   In App.h line 332:
+   - Change: EMISSION_GRID_RESOLUTION = 16;
+   - To:     EMISSION_GRID_RESOLUTION = 32;  // 8x more cells, better spatial resolution
+   - WARNING: This increases memory from 64KB to 512KB and compute cost 8x
+
+
+INTEGRATION STEPS:
+------------------
+1. Add diagnostic function declarations to App.h
+2. Add diagnostic implementations to App.cpp after computeParticleLighting()
+3. Call diagnoseModeNineTwoLighting() once per second in render loop
+4. Run application and check log output for diagnostic results
+5. Apply recommended fixes based on diagnostic output
+6. Remove diagnostic code after issue is resolved (or keep for future debugging)
+
+
+EXPECTED DIAGNOSTIC OUTPUT:
+---------------------------
+If working correctly:
+  [DIAG] Emission Grid: 245/4096 cells populated (5.9%)
+  [DIAG] Emission Stats: max=2.456 avg=0.832
+  [DIAG] Particle Lighting: 3421 have non-zero lighting (34.2%)
+  [DIAG] Lighting Stats: max=0.234 avg=0.067
+
+If grid is empty:
+  [DIAG] Emission Grid: 0/4096 cells populated (0%)
+  [DIAG] PROBLEM: Emission grid is EMPTY! No hot particles above threshold?
+  [DIAG] FIX: Lower emissionThreshold from 10000K to 5000K
+
+If lighting too weak:
+  [DIAG] Lighting Stats: max=0.012 avg=0.003
+  [DIAG] PROBLEM: Lighting values too small! Max boosted value = 0.06
+  [DIAG] FIX: Increase boost from 5x to 50x in particle_mesh.hlsl

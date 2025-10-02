@@ -37,7 +37,7 @@ cbuffer ModeParams : register(b1) {
 
 StructuredBuffer<Particle> particles : register(t0);
 Texture2D<float> shadowMap : register(t1);  // Shadow map (Mode 9.1+)
-StructuredBuffer<float4> particleLighting : register(t2);  // Particle lighting (Mode 9.2+)
+Buffer<float4> particleLighting : register(t2);  // Particle lighting (Mode 9.2+) - Typed buffer, not structured
 SamplerState shadowSampler : register(s0);
 ConstantBuffer<RenderConstants> renderConstants : register(b0);
 
@@ -212,6 +212,11 @@ PSOutput PSMain(VertexOutput input) {
     // Apply sphere shading
     color *= (0.6 + intensity * 0.8);
 
+    // Mode 9.2+: Add particle-to-particle lighting (additive boost)
+    if (mode9SubMode >= 2) {
+        color += input.lighting * 25.0;  // 25x boost for visibility (was 5x - DIAGNOSTIC FIX)
+    }
+
     // Mode 9.1+: Apply DXR shadow map
     float shadowFactor = 1.0;
     if (mode9SubMode >= 1) {
@@ -226,13 +231,9 @@ PSOutput PSMain(VertexOutput input) {
 
             // Apply shadow darkening (20% brightness in shadow, 100% in light)
             // shadowFactor: 0.0 = occluded (in shadow), 1.0 = lit (no occlusion)
-            float3 shadowedColor = lerp(color * 0.2, color, shadowFactor);
-            color = shadowedColor;
+            color = lerp(color * 0.2, color, shadowFactor);
         }
     }
-
-    // Apply shadow to final color
-    color *= shadowFactor;
 
     // Calculate emission for Mode 9.2+
     float emissionStrength = 0.0;

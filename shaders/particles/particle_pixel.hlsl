@@ -30,7 +30,7 @@ PixelOutput main(PixelInput input) {
     float3 baseColor = input.color;
 
     // Mode 9.2: Add particle-to-particle lighting (additive)
-    float3 finalColor = baseColor + input.lighting * 2.0;  // Boost lighting visibility
+    float3 finalColor = baseColor + input.lighting * 5.0;  // Boost lighting visibility (increased from 2.0)
 
     // Apply alpha from mesh shader and circular falloff
     float finalAlpha = input.alpha * falloff;
@@ -39,8 +39,9 @@ PixelOutput main(PixelInput input) {
     output.color = float4(finalColor, finalAlpha);
 
     // Mode 9.2: Emission buffer (hot particles emit light for spatial grid)
-    // Normalize temperature to emission strength
-    float emissionStrength = saturate((input.temperature - 800.0) / 25200.0);
+    // Boost emission for hotter particles (>10000K threshold for visible light contribution)
+    float emissionStrength = saturate((input.temperature - 10000.0) / 16000.0);
+    emissionStrength = pow(emissionStrength, 1.5) * 3.0;  // Exponential falloff + scale boost
     output.emission = float4(baseColor * emissionStrength, emissionStrength);
 
     return output;

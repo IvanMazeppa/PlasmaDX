@@ -33,7 +33,9 @@ StructuredBuffer<Particle> particles : register(t0);
 ByteAddressBuffer emissionGrid : register(t1);
 
 // Output: Lighting contribution per particle (RGB = additive light color, A = unused)
-RWStructuredBuffer<float4> particleLighting : register(u0);
+// CRITICAL FIX: Use RWBuffer (typed) to match the typed UAV descriptor created in App.cpp
+// The buffer UAV is created with StructureByteStride=0, requiring typed buffer access
+RWBuffer<float4> particleLighting : register(u0);
 
 // Helper: Convert 3D grid coordinates to linear buffer index
 uint GridCoordToIndex(uint3 coord)
@@ -46,7 +48,9 @@ int3 WorldPosToGridCoord(float3 worldPos)
 {
     // Map from [-worldRadius, +worldRadius] to [0, gridResolution]
     float3 normalized = (worldPos + worldRadius) / (2.0 * worldRadius);
-    int3 coord = (int3)(normalized * gridResolution);
+    int3 coord = (int3)(saturate(normalized) * (gridResolution - 1));
+    // Clamp to valid range [0, gridResolution-1]
+    coord = clamp(coord, int3(0,0,0), int3(gridResolution-1, gridResolution-1, gridResolution-1));
     return coord;
 }
 
@@ -58,14 +62,14 @@ float3 SampleGrid(int3 coord)
         return float3(0, 0, 0);
 
     uint index = GridCoordToIndex((uint3)coord);
-    uint baseAddr = index * 16;  // 16 bytes per float4
+    uint baseAddr = index * 16;  // 16 bytes per cell
 
-    // Read float4 from ByteAddressBuffer
+    // Read fixed-point integers and convert to float (divide by 256)
     float4 cell;
-    cell.x = asfloat(emissionGrid.Load(baseAddr + 0));
-    cell.y = asfloat(emissionGrid.Load(baseAddr + 4));
-    cell.z = asfloat(emissionGrid.Load(baseAddr + 8));
-    cell.w = asfloat(emissionGrid.Load(baseAddr + 12));
+    cell.x = float(asint(emissionGrid.Load(baseAddr + 0))) / 256.0;
+    cell.y = float(asint(emissionGrid.Load(baseAddr + 4))) / 256.0;
+    cell.z = float(asint(emissionGrid.Load(baseAddr + 8))) / 256.0;
+    cell.w = float(asint(emissionGrid.Load(baseAddr + 12))) / 256.0;
 
     // Normalize by particle count to get average emission in cell
     if (cell.w > 0.0)
@@ -109,9 +113,9 @@ float3 ComputeLighting(float3 worldPos)
         }
     }
 
-    // Normalize and apply global strength
+    // Apply global strength (SampleGrid already normalized by particle count)
     if (totalWeight > 0.0)
-        totalLight = (totalLight / totalWeight) * lightingStrength;
+        totalLight = totalLight * lightingStrength;
 
     return totalLight;
 }

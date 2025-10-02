@@ -2200,6 +2200,12 @@ void App::renderFrameDXR() {
 
 		// MODE 9: Mesh shader particle rendering (isolated path, no volumetrics)
 		if (m_demoMode == DemoMode::AccretionMeshParticles && m_meshParticleSystem) {
+			// FIX: Get frame index FIRST, then wait for that frame to complete
+			m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
+			waitForFrame();
+			m_cmdAllocator->Reset();
+			m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
+
 			PIX_SCOPED_EVENT(m_cmdList.Get(), "Mesh Particle System");
 
 			static bool s_firstFrame = true;
@@ -2235,8 +2241,7 @@ void App::renderFrameDXR() {
 					renderShadowMap();  // Runs on main command list, no fence wait needed
 				}
 
-				// Get current backbuffer for direct rendering
-				m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
+				// Get current backbuffer for direct rendering (frame index already set above)
 				auto backbuffer = m_backbuffers[m_frameIndex];
 
 				static int s_frameCount = 0;
@@ -2261,6 +2266,12 @@ void App::renderFrameDXR() {
 				// Clear backbuffer to black
 				float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 				m_cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
+				// Mode 9.2: Clear emission texture to zero before particle rendering
+				if (m_mode9SubMode >= Mode9SubMode::ParticleRelight && m_emissionTexture) {
+					float emissionClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+					m_cmdList->ClearRenderTargetView(m_emissionRtvHandle, emissionClear, 0, nullptr);
+				}
 
 				// Render particles with mesh shaders
 				DirectX::XMMATRIX viewMatrix = m_camera->GetViewMatrix();
@@ -2300,6 +2311,33 @@ void App::renderFrameDXR() {
 
 					// Build spatial grid from emission buffer
 					computeEmissionGrid();
+
+					// Transition lighting buffer from SRV (previous frame) back to UAV for clearing/writing
+					// Track which mode we were in last frame to detect mode changes
+					static Mode9SubMode s_lastMode = Mode9SubMode::Baseline;
+					bool modeJustChanged = (s_lastMode != m_mode9SubMode);
+					s_lastMode = m_mode9SubMode;
+
+					if (!modeJustChanged) {
+						// Not first frame of mode 9.2, need to transition from SRV back to UAV
+						D3D12_RESOURCE_BARRIER lightingToUAV{};
+						lightingToUAV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+						lightingToUAV.Transition.pResource = m_particleLightingBuffer.Get();
+						lightingToUAV.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+						lightingToUAV.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+						lightingToUAV.Transition.Subresource = 0;
+						m_cmdList->ResourceBarrier(1, &lightingToUAV);
+					}
+					// else: first frame of mode 9.2, buffer is already in UAV state (initial state)
+
+					// Clear particle lighting buffer to zero before computing new lighting
+					float clearZero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+					m_cmdList->ClearUnorderedAccessViewFloat(
+						m_descriptorAllocator->GetGPUHandle(m_particleLightingUavIndex),
+						m_descriptorAllocator->GetCPUHandle(m_particleLightingUavIndex),
+						m_particleLightingBuffer.Get(),
+						clearZero,
+						0, nullptr);
 
 					// Mode 9.2 Milestone 3: Apply grid-based lighting to particles
 					computeParticleLighting();
@@ -2367,7 +2405,20 @@ void App::renderFrameDXR() {
 			m_queue->ExecuteCommandLists(1, lists);
 
 			// Present (PIX event can't be used after Close())
-			m_swapchain->Present(1, 0);
+			HRESULT presentHr = m_swapchain->Present(1, 0);
+
+			// FIX: Check for device removal to prevent infinite error loop
+			if (FAILED(presentHr)) {
+				LOGE("Present failed in Mode 9: 0x" + std::to_string(static_cast<uint32_t>(presentHr)));
+				if (presentHr == DXGI_ERROR_DEVICE_REMOVED || presentHr == DXGI_ERROR_DEVICE_RESET) {
+					HRESULT reason = m_device->GetDeviceRemovedReason();
+					LOGE("DEVICE REMOVED! Reason: 0x" + std::to_string(static_cast<uint32_t>(reason)));
+					dumpInfoQueueMessages();
+					// Exit application immediately instead of continuing infinite loop
+					PostQuitMessage(static_cast<int>(reason));
+					return;
+				}
+			}
 
 			m_frameFenceValues[m_frameIndex] = ++m_fenceValue;
 			m_queue->Signal(m_fence.Get(), m_fenceValue);
@@ -3194,11 +3245,18 @@ bool App::createEmissionGridResources() {
         return false;
     }
 
-    srvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    srvDesc.Buffer.NumElements = particleCount;
+    // CRITICAL FIX: Create fresh SRV descriptor (don't reuse emission grid descriptor)
+    D3D12_SHADER_RESOURCE_VIEW_DESC lightingSrvDesc = {};
+    lightingSrvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    lightingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    lightingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    lightingSrvDesc.Buffer.FirstElement = 0;
+    lightingSrvDesc.Buffer.NumElements = particleCount;
+    lightingSrvDesc.Buffer.StructureByteStride = 0;  // Typed buffer
+    lightingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
     D3D12_CPU_DESCRIPTOR_HANDLE lightingSrvHandle = m_descriptorAllocator->GetCPUHandle(m_particleLightingSrvIndex);
-    m_device->CreateShaderResourceView(m_particleLightingBuffer.Get(), &srvDesc, lightingSrvHandle);
+    m_device->CreateShaderResourceView(m_particleLightingBuffer.Get(), &lightingSrvDesc, lightingSrvHandle);
 
     // 3. Create constant buffer for grid builder shader
     const UINT constantBufferSize = 256;  // Align to 256 bytes for CBV
@@ -3396,55 +3454,44 @@ void App::computeEmissionGrid() {
     ID3D12DescriptorHeap* heaps[] = { m_srvUavHeap.Get() };
     m_cmdList->SetDescriptorHeaps(1, heaps);
 
-    // Parameter 0: Emission texture SRV (t0)
-    m_cmdList->SetComputeRootDescriptorTable(0, m_descriptorAllocator->GetGPUHandle(m_emissionSrvIndex));
+    // Get particle buffer SRV from particle system
+    UINT particleBufferSrvIndex = m_meshParticleSystem->GetParticleBufferSRVIndex();
+    if (particleBufferSrvIndex == UINT_MAX) {
+        return; // Particle buffer not ready
+    }
+
+    // Parameter 0: Particle buffer SRV (t0)
+    m_cmdList->SetComputeRootDescriptorTable(0, m_descriptorAllocator->GetGPUHandle(particleBufferSrvIndex));
 
     // Parameter 1: Emission grid UAV (u0)
     m_cmdList->SetComputeRootDescriptorTable(1, m_descriptorAllocator->GetGPUHandle(m_emissionGridUavIndex));
 
-    // Parameter 2: Grid constants (b0) - upload to CBV
+    // Parameter 2: Grid constants (b0)
     struct GridConstants {
-        DirectX::XMUINT2 emissionTexSize;
+        UINT particleCount;
         UINT gridResolution;
         float worldRadius;
-        DirectX::XMFLOAT4X4 viewMatrix;
-        DirectX::XMFLOAT4X4 projMatrix;
-        DirectX::XMFLOAT4X4 invViewProj;
+        float emissionThreshold;
     } gridConstants;
 
-    gridConstants.emissionTexSize = DirectX::XMUINT2(m_width, m_height);
+    gridConstants.particleCount = m_mode9ParticleCount;
     gridConstants.gridResolution = EMISSION_GRID_RESOLUTION;
     gridConstants.worldRadius = 20.0f;  // Match particle system bounds
+    gridConstants.emissionThreshold = 3000.0f;  // Lower threshold for more emitters (was 10000K - DIAGNOSTIC FIX)
 
-    DirectX::XMMATRIX viewMat = m_camera->GetViewMatrix();
-    DirectX::XMMATRIX projMat = m_camera->GetProjectionMatrix();
-    DirectX::XMStoreFloat4x4(&gridConstants.viewMatrix, DirectX::XMMatrixTranspose(viewMat));
-    DirectX::XMStoreFloat4x4(&gridConstants.projMatrix, DirectX::XMMatrixTranspose(projMat));
+    m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GridConstants) / 4, &gridConstants, 0);
 
-    DirectX::XMMATRIX invViewProj = DirectX::XMMatrixInverse(nullptr, viewMat * projMat);
-    DirectX::XMStoreFloat4x4(&gridConstants.invViewProj, DirectX::XMMatrixTranspose(invViewProj));
-
-    // Map and upload constants to CBV
-    void* cbData;
-    m_gridConstantsBuffer->Map(0, nullptr, &cbData);
-    memcpy(cbData, &gridConstants, sizeof(GridConstants));
-    m_gridConstantsBuffer->Unmap(0, nullptr);
-
-    // Bind CBV via GPU virtual address
-    m_cmdList->SetComputeRootConstantBufferView(2, m_gridConstantsBuffer->GetGPUVirtualAddress());
-
-    // Dispatch: 8x8 thread groups covering emission buffer
-    const UINT threadGroupSize = 8;
-    const UINT dispatchX = (m_width + threadGroupSize - 1) / threadGroupSize;
-    const UINT dispatchY = (m_height + threadGroupSize - 1) / threadGroupSize;
-    m_cmdList->Dispatch(dispatchX, dispatchY, 1);
+    // Dispatch: 256 threads per group covering all particles
+    const UINT threadGroupSize = 256;
+    const UINT dispatchX = (m_mode9ParticleCount + threadGroupSize - 1) / threadGroupSize;
+    m_cmdList->Dispatch(dispatchX, 1, 1);
 
     // UAV barrier + transition to SRV for particle lighting read
+    // NOTE: Grid buffer is created in UAV state, so first frame is already correct
     D3D12_RESOURCE_BARRIER barriers[2]{};
     barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     barriers[0].UAV.pResource = m_emissionGridBuffer.Get();
 
-    // FIX: Transition grid from UAV state to SRV state for particle lighting shader
     barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barriers[1].Transition.pResource = m_emissionGridBuffer.Get();
     barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
@@ -3504,9 +3551,9 @@ void App::computeParticleLighting() {
     lightingConstants.particleCount = m_mode9ParticleCount;
     lightingConstants.gridResolution = EMISSION_GRID_RESOLUTION;
     lightingConstants.worldRadius = 20.0f;
-    lightingConstants.lightingStrength = 1.0f;  // Adjustable parameter
+    lightingConstants.lightingStrength = 25.0f;  // Increased for more visible glow
     lightingConstants.cameraPos = m_camera->GetPosition();
-    lightingConstants.falloffRadius = 3.0f;  // Lighting falls off over 3 units
+    lightingConstants.falloffRadius = 12.0f;  // Much wider influence for visible halos
 
     m_cmdList->SetComputeRoot32BitConstants(3, sizeof(LightingConstants) / 4, &lightingConstants, 0);
 
@@ -3515,12 +3562,15 @@ void App::computeParticleLighting() {
     const UINT dispatchX = (m_mode9ParticleCount + threadGroupSize - 1) / threadGroupSize;
     m_cmdList->Dispatch(dispatchX, 1, 1);
 
-    // UAV barrier + transition grid back to UAV for next frame
-    D3D12_RESOURCE_BARRIER postBarriers[2]{};
-    postBarriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-    postBarriers[0].UAV.pResource = m_particleLightingBuffer.Get();
-
+    // Transition lighting buffer from UAV to SRV for mesh shader reading
     // Transition grid back to UAV state for next frame's clear/build
+    D3D12_RESOURCE_BARRIER postBarriers[2]{};
+    postBarriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    postBarriers[0].Transition.pResource = m_particleLightingBuffer.Get();
+    postBarriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    postBarriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    postBarriers[0].Transition.Subresource = 0;
+
     postBarriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     postBarriers[1].Transition.pResource = m_emissionGridBuffer.Get();
     postBarriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
@@ -3726,10 +3776,12 @@ bool App::createLightingComputePipelines() {
     gridParams[1].DescriptorTable.pDescriptorRanges = &uavRange;
     gridParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
-    // Use CBV descriptor instead of inline constants (too large for root constants)
-    gridParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-    gridParams[2].Descriptor.ShaderRegister = 0;   // b0
-    gridParams[2].Descriptor.RegisterSpace = 0;
+    // FIX: Use inline root constants (4 DWORDs = 16 bytes, well within 64 DWORD limit)
+    // This matches the SetComputeRoot32BitConstants call in computeEmissionGrid()
+    gridParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    gridParams[2].Constants.Num32BitValues = 4;  // GridConstants struct (4 x uint/float)
+    gridParams[2].Constants.ShaderRegister = 0;  // b0
+    gridParams[2].Constants.RegisterSpace = 0;
     gridParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC gridRootSigDesc{};

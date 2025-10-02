@@ -1,20 +1,29 @@
 // Mode 9.2 Milestone 2: Emission Grid Builder
-// Reads emission buffer and accumulates emission data into 3D spatial grid
+// Reads particle buffer directly and accumulates emission data into 3D spatial grid
 // This allows efficient spatial queries for particle-to-particle lighting
 
 cbuffer GridConstants : register(b0)
 {
-    uint2 emissionTexSize;      // Emission buffer dimensions (e.g., 1920x1080)
-    uint gridResolution;        // Grid cells per axis (e.g., 64 for 64^3 grid)
+    uint particleCount;         // Number of particles
+    uint gridResolution;        // Grid cells per axis (e.g., 16 for 16^3 grid)
     float worldRadius;          // World space radius (e.g., 20.0 for [-20,20] bounds)
-
-    float4x4 viewMatrix;        // Camera view matrix for unprojection
-    float4x4 projMatrix;        // Camera projection matrix for unprojection
-    float4x4 invViewProj;       // Inverse view-projection for screen-to-world
+    float emissionThreshold;    // Temperature threshold for emission (e.g., 10000K)
 };
 
-// Input: Emission buffer (R11G11B10_FLOAT) - written by particle pixel shader
-Texture2D<float4> emissionBuffer : register(t0);
+// Input: Particle buffer (direct access to 3D positions)
+struct Particle
+{
+    float3 position;
+    float3 velocity;
+    float3 color;
+    float temperature;
+    float mass;
+    float lifetime;
+    float _pad0;
+    float _pad1;
+};
+
+StructuredBuffer<Particle> particles : register(t0);
 
 // Output: 3D spatial grid accumulating emission color + particle count
 // Using RWByteAddressBuffer for atomic float operations
@@ -37,59 +46,78 @@ uint3 WorldPosToGridCoord(float3 worldPos)
     return coord;
 }
 
-// Helper: Reconstruct world position from screen UV + depth
-float3 ScreenToWorld(float2 uv, float depth)
+// Helper: Calculate emission color from temperature
+float3 TemperatureToEmissionColor(float temperature)
 {
-    // Convert UV [0,1] to NDC [-1,1]
-    float4 clipPos = float4(uv * 2.0 - 1.0, depth, 1.0);
-    clipPos.y = -clipPos.y; // Flip Y for DX12
+    // Normalize temperature to 0-1 range (800K to 26000K)
+    float t = saturate((temperature - 800.0) / 25200.0);
 
-    // Unproject to world space
-    float4 worldPos = mul(invViewProj, clipPos);
-    return worldPos.xyz / worldPos.w;
+    // Same color gradient as particle rendering
+    float3 color;
+    if (t < 0.25) {
+        float blend = t / 0.25;
+        color = lerp(float3(0.5, 0.1, 0.05), float3(1.0, 0.3, 0.1), blend);
+    } else if (t < 0.5) {
+        float blend = (t - 0.25) / 0.25;
+        color = lerp(float3(1.0, 0.3, 0.1), float3(1.0, 0.6, 0.2), blend);
+    } else if (t < 0.75) {
+        float blend = (t - 0.5) / 0.25;
+        color = lerp(float3(1.0, 0.6, 0.2), float3(1.0, 0.95, 0.7), blend);
+    } else {
+        float blend = (t - 0.75) / 0.25;
+        color = lerp(float3(1.0, 0.95, 0.7), float3(1.0, 1.0, 1.0), blend);
+    }
+    return color;
 }
 
-[numthreads(8, 8, 1)]
+// Helper: Atomic integer addition (converted from float)
+// Store as fixed-point integer (multiply by 256) to allow atomic operations
+// This avoids GPU timeout from float atomic compare-exchange loops
+void AtomicAddInt(RWByteAddressBuffer buffer, uint address, float value)
+{
+    // Convert float to fixed-point integer (8.24 format: 256 = 1.0)
+    int intValue = int(value * 256.0);
+    buffer.InterlockedAdd(address, intValue);
+}
+
+[numthreads(256, 1, 1)]
 void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
-    // Early exit if outside emission buffer bounds
-    if (dispatchThreadID.x >= emissionTexSize.x || dispatchThreadID.y >= emissionTexSize.y)
+    uint particleIndex = dispatchThreadID.x;
+
+    // Early exit if outside particle count
+    if (particleIndex >= particleCount)
         return;
 
-    uint2 pixelCoord = dispatchThreadID.xy;
+    // Read particle data
+    Particle p = particles[particleIndex];
 
-    // Read emission data from buffer
-    float4 emission = emissionBuffer[pixelCoord];
-
-    // Skip if no emission (w channel = emission strength)
-    if (emission.w <= 0.0)
+    // Calculate emission strength based on temperature
+    // Only hot particles (>emissionThreshold) emit light
+    if (p.temperature < emissionThreshold)
         return;
 
-    // Calculate screen UV
-    float2 uv = (float2(pixelCoord) + 0.5) / float2(emissionTexSize);
+    // Calculate emission strength (exponential above threshold)
+    float normalizedTemp = saturate((p.temperature - emissionThreshold) / (26000.0 - emissionThreshold));
+    float emissionStrength = pow(normalizedTemp, 1.2) * 10.0;  // Stronger emission, less falloff (was 1.5, 3.0 - DIAGNOSTIC FIX)
 
-    // Reconstruct world position (assuming depth ~0.5 for mid-depth particles)
-    // NOTE: This is approximate - ideally we'd have a depth buffer
-    // For now, assume particles are at typical orbital distance
-    float depth = 0.5; // Mid-depth approximation
-    float3 worldPos = ScreenToWorld(uv, depth);
+    // Get emission color from temperature
+    float3 emissionColor = TemperatureToEmissionColor(p.temperature);
 
-    // Convert world position to grid coordinates
-    uint3 gridCoord = WorldPosToGridCoord(worldPos);
+    // Convert particle world position to grid coordinates
+    uint3 gridCoord = WorldPosToGridCoord(p.position);
     uint gridIndex = GridCoordToIndex(gridCoord);
 
-    // Accumulate emission into grid cell using atomic operations on uint representation of float
-    // Each cell is 16 bytes (4 floats = 4 uints)
-    uint baseAddr = gridIndex * 16;  // 16 bytes per float4
+    // Accumulate emission into grid cell using integer atomics
+    // Each cell is 16 bytes (4 ints storing fixed-point floats)
+    uint baseAddr = gridIndex * 16;
 
-    // Atomic add for RGB channels (emission color weighted by intensity)
-    float3 weightedEmission = emission.rgb * emission.w;
+    // Emission color weighted by intensity
+    float3 weightedEmission = emissionColor * emissionStrength;
 
-    uint originalValue;
-    emissionGrid.InterlockedAdd(baseAddr + 0, asuint(weightedEmission.x), originalValue);
-    emissionGrid.InterlockedAdd(baseAddr + 4, asuint(weightedEmission.y), originalValue);
-    emissionGrid.InterlockedAdd(baseAddr + 8, asuint(weightedEmission.z), originalValue);
-
-    // W channel: accumulate emission strength
-    emissionGrid.InterlockedAdd(baseAddr + 12, asuint(emission.w), originalValue);
+    // Atomic integer add (hardware-optimized, no infinite loop)
+    AtomicAddInt(emissionGrid, baseAddr + 0, weightedEmission.x);
+    AtomicAddInt(emissionGrid, baseAddr + 4, weightedEmission.y);
+    AtomicAddInt(emissionGrid, baseAddr + 8, weightedEmission.z);
+    AtomicAddInt(emissionGrid, baseAddr + 12, emissionStrength);
 }

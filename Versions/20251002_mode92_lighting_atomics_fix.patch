@@ -1,0 +1,84 @@
+diff --git a/shaders/mode9/emission_grid_build.hlsl b/shaders/mode9/emission_grid_build.hlsl
+index df82211..a7c3d40 100644
+--- a/shaders/mode9/emission_grid_build.hlsl
++++ b/shaders/mode9/emission_grid_build.hlsl
+@@ -49,6 +49,27 @@ float3 ScreenToWorld(float2 uv, float depth)
+     return worldPos.xyz / worldPos.w;
+ }
+ 
++// Helper: Atomic float addition using compare-exchange loop
++// CRITICAL FIX: InterlockedAdd with asuint(float) adds bit pattern as integer (garbage)!
++// Must use InterlockedCompareExchange to properly accumulate floating-point values.
++void AtomicAddFloat(RWByteAddressBuffer buffer, uint address, float value)
++{
++    uint originalValue;
++    uint newValue;
++    uint comparand;
++
++    // Retry loop until successful exchange
++    [allow_uav_condition]
++    while (true)
++    {
++        originalValue = buffer.Load(address);
++        newValue = asuint(asfloat(originalValue) + value);
++        buffer.InterlockedCompareExchange(address, originalValue, newValue, comparand);
++        if (comparand == originalValue)
++            break;
++    }
++}
++
+ [numthreads(8, 8, 1)]
+ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
+ {
+@@ -78,18 +99,18 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
+     uint3 gridCoord = WorldPosToGridCoord(worldPos);
+     uint gridIndex = GridCoordToIndex(gridCoord);
+ 
+-    // Accumulate emission into grid cell using atomic operations on uint representation of float
++    // Accumulate emission into grid cell using proper float atomic operations
+     // Each cell is 16 bytes (4 floats = 4 uints)
+     uint baseAddr = gridIndex * 16;  // 16 bytes per float4
+ 
+     // Atomic add for RGB channels (emission color weighted by intensity)
+     float3 weightedEmission = emission.rgb * emission.w;
+ 
+-    uint originalValue;
+-    emissionGrid.InterlockedAdd(baseAddr + 0, asuint(weightedEmission.x), originalValue);
+-    emissionGrid.InterlockedAdd(baseAddr + 4, asuint(weightedEmission.y), originalValue);
+-    emissionGrid.InterlockedAdd(baseAddr + 8, asuint(weightedEmission.z), originalValue);
++    // FIXED: Use AtomicAddFloat instead of broken InterlockedAdd with asuint
++    AtomicAddFloat(emissionGrid, baseAddr + 0, weightedEmission.x);
++    AtomicAddFloat(emissionGrid, baseAddr + 4, weightedEmission.y);
++    AtomicAddFloat(emissionGrid, baseAddr + 8, weightedEmission.z);
+ 
+-    // W channel: accumulate emission strength
+-    emissionGrid.InterlockedAdd(baseAddr + 12, asuint(emission.w), originalValue);
++    // W channel: accumulate emission strength (particle count)
++    AtomicAddFloat(emissionGrid, baseAddr + 12, emission.w);
+ }
+\ No newline at end of file
+diff --git a/shaders/particles/particle_pixel.hlsl b/shaders/particles/particle_pixel.hlsl
+index 3028622..33a61ec 100644
+--- a/shaders/particles/particle_pixel.hlsl
++++ b/shaders/particles/particle_pixel.hlsl
+@@ -30,7 +30,7 @@ PixelOutput main(PixelInput input) {
+     float3 baseColor = input.color;
+ 
+     // Mode 9.2: Add particle-to-particle lighting (additive)
+-    float3 finalColor = baseColor + input.lighting * 2.0;  // Boost lighting visibility
++    float3 finalColor = baseColor + input.lighting * 5.0;  // Boost lighting visibility (increased from 2.0)
+ 
+     // Apply alpha from mesh shader and circular falloff
+     float finalAlpha = input.alpha * falloff;
+@@ -39,8 +39,9 @@ PixelOutput main(PixelInput input) {
+     output.color = float4(finalColor, finalAlpha);
+ 
+     // Mode 9.2: Emission buffer (hot particles emit light for spatial grid)
+-    // Normalize temperature to emission strength
+-    float emissionStrength = saturate((input.temperature - 800.0) / 25200.0);
++    // Boost emission for hotter particles (>10000K threshold for visible light contribution)
++    float emissionStrength = saturate((input.temperature - 10000.0) / 16000.0);
++    emissionStrength = pow(emissionStrength, 1.5) * 3.0;  // Exponential falloff + scale boost
+     output.emission = float4(baseColor * emissionStrength, emissionStrength);
+ 
+     return output;
