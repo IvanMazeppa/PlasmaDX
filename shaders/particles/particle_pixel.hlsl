@@ -26,11 +26,13 @@ PixelOutput main(PixelInput input) {
     // Smooth circular falloff
     float falloff = 1.0 - smoothstep(0.7, 1.0, distance);
 
-    // Base particle color from temperature
-    float3 baseColor = input.color;
+    // Base particle color from temperature (DIMMED for ambient illumination)
+    // Reduced to 30% so that particle-to-particle lighting becomes primary light source
+    float3 baseColor = input.color * 0.3;
 
-    // Mode 9.2: Add particle-to-particle lighting (additive boost)
-    float3 finalColor = baseColor + input.lighting * 2.0;  // Additive lighting with 2x boost
+    // Mode 9.2: Add particle-to-particle lighting (PRIMARY illumination)
+    // 75x boost makes lighting effect clearly visible against dimmed ambient
+    float3 finalColor = baseColor + input.lighting * 75.0;
 
     // Apply alpha from mesh shader and circular falloff
     float finalAlpha = input.alpha * falloff;
