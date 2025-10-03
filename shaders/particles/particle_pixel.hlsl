@@ -29,8 +29,8 @@ PixelOutput main(PixelInput input) {
     // Base particle color from temperature
     float3 baseColor = input.color;
 
-    // Mode 9.2: Add particle-to-particle lighting (additive)
-    float3 finalColor = baseColor + input.lighting * 5.0;  // Boost lighting visibility (increased from 2.0)
+    // Mode 9.2: Add particle-to-particle lighting (additive boost)
+    float3 finalColor = baseColor + input.lighting * 2.0;  // Additive lighting with 2x boost
 
     // Apply alpha from mesh shader and circular falloff
     float finalAlpha = input.alpha * falloff;

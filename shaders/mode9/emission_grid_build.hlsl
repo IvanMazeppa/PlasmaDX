@@ -38,9 +38,9 @@ uint GridCoordToIndex(uint3 coord)
 // Helper: Convert world position to grid coordinates
 uint3 WorldPosToGridCoord(float3 worldPos)
 {
-    // Map from [-worldRadius, +worldRadius] to [0, gridResolution]
+    // Map from [-worldRadius, +worldRadius] to [0, gridResolution-1]
     float3 normalized = (worldPos + worldRadius) / (2.0 * worldRadius);
-    uint3 coord = (uint3)(saturate(normalized) * gridResolution);
+    uint3 coord = (uint3)(saturate(normalized) * (gridResolution - 1));
     // Clamp to valid range [0, gridResolution-1]
     coord = min(coord, uint3(gridResolution - 1, gridResolution - 1, gridResolution - 1));
     return coord;
@@ -97,9 +97,9 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     if (p.temperature < emissionThreshold)
         return;
 
-    // Calculate emission strength (exponential above threshold)
-    float normalizedTemp = saturate((p.temperature - emissionThreshold) / (26000.0 - emissionThreshold));
-    float emissionStrength = pow(normalizedTemp, 1.2) * 10.0;  // Stronger emission, less falloff (was 1.5, 3.0 - DIAGNOSTIC FIX)
+    // Calculate emission strength based on temperature (linear for now)
+    float normalizedTemp = saturate(p.temperature / 26000.0);
+    float emissionStrength = normalizedTemp * 5.0;  // Moderate emission strength
 
     // Get emission color from temperature
     float3 emissionColor = TemperatureToEmissionColor(p.temperature);

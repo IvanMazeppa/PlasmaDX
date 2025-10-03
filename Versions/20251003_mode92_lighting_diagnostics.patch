@@ -1,0 +1,126 @@
+diff --git src/core/App.cpp src/core/App.cpp
+index 3471329..b3978d2 100644
+--- src/core/App.cpp
++++ src/core/App.cpp
+@@ -3578,6 +3578,93 @@ void App::computeParticleLighting() {
+     postBarriers[1].Transition.Subresource = 0;
+ 
+     m_cmdList->ResourceBarrier(2, postBarriers);
++
++    // DEBUG: Read back first few lighting values to verify compute shader output
++    static bool s_readbackDone = false;
++    if (!s_readbackDone && m_particleLightingBuffer) {
++        s_readbackDone = true;
++
++        // Create readback buffer (one-time allocation)
++        D3D12_HEAP_PROPERTIES readbackHeapProps{};
++        readbackHeapProps.Type = D3D12_HEAP_TYPE_READBACK;
++
++        D3D12_RESOURCE_DESC readbackDesc{};
++        readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++        readbackDesc.Width = 16 * 1024;  // Read first 1024 particles (16 bytes each)
++        readbackDesc.Height = 1;
++        readbackDesc.DepthOrArraySize = 1;
++        readbackDesc.MipLevels = 1;
++        readbackDesc.Format = DXGI_FORMAT_UNKNOWN;
++        readbackDesc.SampleDesc.Count = 1;
++        readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++
++        Microsoft::WRL::ComPtr<ID3D12Resource> readbackBuffer;
++        HRESULT hr = m_device->CreateCommittedResource(&readbackHeapProps, D3D12_HEAP_FLAG_NONE,
++            &readbackDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readbackBuffer));
++
++        if (SUCCEEDED(hr)) {
++            // Transition lighting buffer to COPY_SOURCE
++            D3D12_RESOURCE_BARRIER toCopySrc{};
++            toCopySrc.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++            toCopySrc.Transition.pResource = m_particleLightingBuffer.Get();
++            toCopySrc.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++            toCopySrc.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++            toCopySrc.Transition.Subresource = 0;
++            m_cmdList->ResourceBarrier(1, &toCopySrc);
++
++            // Copy buffer data
++            m_cmdList->CopyBufferRegion(readbackBuffer.Get(), 0, m_particleLightingBuffer.Get(), 0, 16 * 1024);
++
++            // Transition back to SRV
++            toCopySrc.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
++            toCopySrc.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++            m_cmdList->ResourceBarrier(1, &toCopySrc);
++
++            // Close and execute command list
++            m_cmdList->Close();
++            ID3D12CommandList* cmdLists[] = { m_cmdList.Get() };
++            m_cmdQueue->ExecuteCommandLists(1, cmdLists);
++
++            // Wait for GPU
++            m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
++            m_cmdQueue->Signal(m_fence.Get(), m_fenceValue);
++            WaitForSingleObject(m_fenceEvent, INFINITE);
++            m_fenceValue++;
++
++            // Read data
++            void* pData = nullptr;
++            hr = readbackBuffer->Map(0, nullptr, &pData);
++            if (SUCCEEDED(hr)) {
++                float* lighting = reinterpret_cast<float*>(pData);
++                int nonZeroCount = 0;
++                float maxValue = 0.0f;
++
++                for (int i = 0; i < 1024; i++) {
++                    float r = lighting[i * 4 + 0];
++                    float g = lighting[i * 4 + 1];
++                    float b = lighting[i * 4 + 2];
++                    float magnitude = sqrtf(r*r + g*g + b*b);
++
++                    if (magnitude > 0.0001f) {
++                        nonZeroCount++;
++                        if (magnitude > maxValue) maxValue = magnitude;
++                        if (nonZeroCount <= 5) {
++                            LOGI("Lighting[" + std::to_string(i) + "] = (" +
++                                std::to_string(r) + ", " + std::to_string(g) + ", " + std::to_string(b) + ")");
++                        }
++                    }
++                }
++
++                LOGI("LIGHTING BUFFER READBACK: NonZero=" + std::to_string(nonZeroCount) +
++                     "/1024 MaxMagnitude=" + std::to_string(maxValue));
++                readbackBuffer->Unmap(0, nullptr);
++            }
++
++            // Reset command list for next frame
++            m_cmdAllocator->Reset();
++            m_cmdList->Reset(m_cmdAllocator.Get(), nullptr);
++        }
++    }
+ }
+ 
+ bool App::createShadowComputePipeline() {
+diff --git src/particles/ParticleSystem.cpp src/particles/ParticleSystem.cpp
+index ac72a1c..eb4356e 100644
+--- src/particles/ParticleSystem.cpp
++++ src/particles/ParticleSystem.cpp
+@@ -414,15 +414,22 @@ void ParticleSystem::RenderParticles(ID3D12GraphicsCommandList* cmdList,
+                                    uint32_t mode9SubMode,
+                                    D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle,
+                                    D3D12_GPU_DESCRIPTOR_HANDLE particleLightingSrv) {
++    // Log mode parameter on first 3 calls AND whenever mode changes
+     static bool s_firstCall = true;
++    static uint32_t s_lastMode = UINT32_MAX;
++    static int s_callCount = 0;
+     if (s_firstCall) {
+         LOGI("ParticleSystem::RenderParticles called - starting mesh shader rendering");
+         LOGI("Camera position: x=" + std::to_string(cameraPos.x) +
+              " y=" + std::to_string(cameraPos.y) +
+              " z=" + std::to_string(cameraPos.z));
+-        LOGI("Shadow map SRV handle: ptr=0x" + std::to_string(shadowMapSrv.ptr) + " Mode=" + std::to_string(mode9SubMode));
+         s_firstCall = false;
+     }
++    if (s_callCount < 3 || mode9SubMode != s_lastMode) {
++        LOGI("RenderParticles: Mode=" + std::to_string(mode9SubMode) + " LightingSRV=0x" + std::to_string(particleLightingSrv.ptr));
++        s_callCount++;
++        s_lastMode = mode9SubMode;
++    }
+ 
+     // Query for ID3D12GraphicsCommandList6 for DispatchMesh support
+     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList6> cmdList6;

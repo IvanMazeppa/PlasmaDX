@@ -212,9 +212,21 @@ PSOutput PSMain(VertexOutput input) {
     // Apply sphere shading
     color *= (0.6 + intensity * 0.8);
 
-    // Mode 9.2+: Add particle-to-particle lighting (additive boost)
+    // Mode 9.2+: EXTREME DIAGNOSTIC - Replace color entirely with lighting visualization
     if (mode9SubMode >= 2) {
-        color += input.lighting * 25.0;  // 25x boost for visibility (was 5x - DIAGNOSTIC FIX)
+        float lightingMagnitude = length(input.lighting);
+
+        // Show lighting with EXTREME amplification (1000x)
+        float3 visualizedLighting = input.lighting * 1000.0;
+
+        // Color code by magnitude for debugging
+        if (lightingMagnitude > 0.0001) {
+            // Has lighting - show it in bright colors
+            color = visualizedLighting;
+        } else {
+            // Zero lighting - show as dark blue
+            color = float3(0, 0, 0.2);
+        }
     }
 
     // Mode 9.1+: Apply DXR shadow map

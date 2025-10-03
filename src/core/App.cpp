@@ -3477,7 +3477,7 @@ void App::computeEmissionGrid() {
     gridConstants.particleCount = m_mode9ParticleCount;
     gridConstants.gridResolution = EMISSION_GRID_RESOLUTION;
     gridConstants.worldRadius = 20.0f;  // Match particle system bounds
-    gridConstants.emissionThreshold = 3000.0f;  // Lower threshold for more emitters (was 10000K - DIAGNOSTIC FIX)
+    gridConstants.emissionThreshold = 5000.0f;  // Hot particles emit (realistic threshold)
 
     m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GridConstants) / 4, &gridConstants, 0);
 

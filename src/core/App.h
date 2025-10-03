@@ -329,7 +329,7 @@ private:
 	void computeEmissionGrid();
 	void computeParticleLighting();
 
-	static constexpr UINT EMISSION_GRID_RESOLUTION = 16;  // 16^3 = 4,096 cells (was 64 = 262K cells, too slow)
+	static constexpr UINT EMISSION_GRID_RESOLUTION = 32;  // 32^3 = 32,768 cells (better spatial precision)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionGridBuffer;  // float4 per cell: rgb=emission, w=count
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleLightingBuffer;  // float4 per particle: rgb=light
 	UINT m_emissionGridUavIndex = UINT_MAX;

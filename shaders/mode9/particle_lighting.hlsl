@@ -71,11 +71,9 @@ float3 SampleGrid(int3 coord)
     cell.z = float(asint(emissionGrid.Load(baseAddr + 8))) / 256.0;
     cell.w = float(asint(emissionGrid.Load(baseAddr + 12))) / 256.0;
 
-    // Normalize by particle count to get average emission in cell
-    if (cell.w > 0.0)
-        return cell.rgb / cell.w;
-    else
-        return float3(0, 0, 0);
+    // Return total accumulated emission (don't normalize by count)
+    // We want brighter regions where more hot particles are concentrated
+    return cell.rgb;
 }
 
 // Compute lighting contribution from nearby grid cells
