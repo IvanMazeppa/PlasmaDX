@@ -349,6 +349,25 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionGridReadback;
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleLightingReadback;
 
+	// Mode 9.2 RT: Per-particle BLAS and ray-traced lighting (DXR 1.1)
+	bool createPerParticleBLASResources();
+	bool createRTLightingPipeline();
+	void updateParticleAABBs();
+	void computeRTLighting();
+
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_perParticleBLAS;        // BLAS with 100K AABBs
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_perParticleBLASScratch; // Scratch buffer for BLAS updates
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleAABBBuffer;     // AABB buffer (GPU-writable)
+	UINT m_particleBVHSrvIndex = UINT_MAX;                           // SRV for BLAS in RT shader
+
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_aabbGenPSO;        // AABB generation compute shader
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_aabbGenRootSig;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_aabbConstantsBuffer;    // CBV for AABB gen
+
+	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_rtLightingPSO;     // RT lighting compute shader
+	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rtLightingRootSig;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_rtLightingConstantsBuffer; // CBV for RT lighting
+
 	// Voxel particle system methods (Mode 6)
 	bool initializeVoxelSystem();
 	bool createVoxelTextures();

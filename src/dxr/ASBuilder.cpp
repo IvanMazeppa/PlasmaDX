@@ -255,6 +255,114 @@ bool ASBuilder::CreateParticleBLAS(
 	return true;
 }
 
+bool ASBuilder::CreatePerParticleBLAS(
+	Microsoft::WRL::ComPtr<ID3D12Resource>& outBLAS,
+	Microsoft::WRL::ComPtr<ID3D12Resource>& outScratch,
+	Microsoft::WRL::ComPtr<ID3D12Resource>& outAABBBuffer,
+	uint32_t particleCount,
+	float particleRadius) {
+
+	LOGI("ASBuilder::CreatePerParticleBLAS - Creating BLAS with " + std::to_string(particleCount) + " individual AABBs");
+
+	// Create AABB buffer for per-particle AABBs (GPU-writable for dynamic updates)
+	struct AABB {
+		float minX, minY, minZ;
+		float maxX, maxY, maxZ;
+	};
+
+	const size_t aabbBufferSize = sizeof(AABB) * particleCount;
+	D3D12_HEAP_PROPERTIES defaultHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+	D3D12_RESOURCE_DESC aabbBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(
+		aabbBufferSize,
+		D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+	HRESULT hr = m_device->CreateCommittedResource(
+		&defaultHeapProps, D3D12_HEAP_FLAG_NONE, &aabbBufferDesc,
+		D3D12_RESOURCE_STATE_COMMON, nullptr,
+		IID_PPV_ARGS(&outAABBBuffer));
+
+	if (FAILED(hr)) {
+		LOGE("Failed to create per-particle AABB buffer (size=" + std::to_string(aabbBufferSize) + " bytes)");
+		return false;
+	}
+
+	LOGI("Created per-particle AABB buffer: " + std::to_string(aabbBufferSize / 1024) + " KB for " +
+	     std::to_string(particleCount) + " particles");
+
+	// Create geometry descriptor for per-particle AABBs
+	m_perParticleGeometry = {};
+	m_perParticleGeometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+	m_perParticleGeometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+	m_perParticleGeometry.AABBs.AABBCount = particleCount;
+	m_perParticleGeometry.AABBs.AABBs.StartAddress = outAABBBuffer->GetGPUVirtualAddress();
+	m_perParticleGeometry.AABBs.AABBs.StrideInBytes = sizeof(AABB);
+
+	// Build BLAS inputs for per-particle geometry (use ALLOW_UPDATE for dynamic particles)
+	m_perParticleBLASInputs = {};
+	m_perParticleBLASInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+	m_perParticleBLASInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE |
+	                                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+	m_perParticleBLASInputs.NumDescs = 1;
+	m_perParticleBLASInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+	m_perParticleBLASInputs.pGeometryDescs = &m_perParticleGeometry;
+
+	// Query prebuild info for proper sizing
+	ComPtr<ID3D12Device5> device5;
+	hr = m_device.As(&device5);
+	if (FAILED(hr)) {
+		LOGE("Failed to query ID3D12Device5 for prebuild info");
+		return false;
+	}
+
+	D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo{};
+	device5->GetRaytracingAccelerationStructurePrebuildInfo(&m_perParticleBLASInputs, &prebuildInfo);
+
+	LOGI("Per-particle BLAS prebuild info: result=" + std::to_string(prebuildInfo.ResultDataMaxSizeInBytes / 1024) +
+	     " KB, scratch=" + std::to_string(prebuildInfo.ScratchDataSizeInBytes / 1024) + " KB");
+
+	// Create BLAS result buffer
+	D3D12_RESOURCE_DESC blasDesc = CD3DX12_RESOURCE_DESC::Buffer(
+		prebuildInfo.ResultDataMaxSizeInBytes,
+		D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+	hr = m_device->CreateCommittedResource(
+		&defaultHeapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&blasDesc,
+		D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+		nullptr,
+		IID_PPV_ARGS(&outBLAS));
+
+	if (FAILED(hr)) {
+		LOGE("Failed to create per-particle BLAS result buffer");
+		return false;
+	}
+
+	// Create scratch buffer
+	D3D12_RESOURCE_DESC scratchDesc = CD3DX12_RESOURCE_DESC::Buffer(
+		prebuildInfo.ScratchDataSizeInBytes,
+		D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+	hr = m_device->CreateCommittedResource(
+		&defaultHeapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&scratchDesc,
+		D3D12_RESOURCE_STATE_COMMON,
+		nullptr,
+		IID_PPV_ARGS(&outScratch));
+
+	if (FAILED(hr)) {
+		LOGE("Failed to create per-particle BLAS scratch buffer");
+		return false;
+	}
+
+	// Store AABB buffer to keep it alive
+	m_perParticleAABBBuffer = outAABBBuffer;
+
+	LOGI("ASBuilder::CreatePerParticleBLAS completed - " + std::to_string(particleCount) + " procedural AABBs ready");
+	return true;
+}
+
 bool ASBuilder::BuildTLAS(
 	Microsoft::WRL::ComPtr<ID3D12Resource>& outTLAS,
 	Microsoft::WRL::ComPtr<ID3D12Resource>& outScratch,
@@ -390,6 +498,37 @@ void ASBuilder::BuildParticleBLAS(ID3D12GraphicsCommandList* cmdList,
 	cmdList->ResourceBarrier(1, &uavBarrier);
 
 	LOGI("ASBuilder::BuildParticleBLAS - GPU build commands completed (REAL BUILD)");
+}
+
+void ASBuilder::BuildPerParticleBLAS(ID3D12GraphicsCommandList* cmdList,
+	ID3D12Resource* blasResult,
+	ID3D12Resource* blasScratch) {
+
+	LOGI("ASBuilder::BuildPerParticleBLAS - Executing GPU build/update commands for per-particle AABBs");
+
+	// Query for DXR command list interface
+	ComPtr<ID3D12GraphicsCommandList4> cmdList4;
+	HRESULT hr = cmdList->QueryInterface(IID_PPV_ARGS(&cmdList4));
+	if (FAILED(hr)) {
+		LOGE("Failed to query ID3D12GraphicsCommandList4 for per-particle BLAS build");
+		return;
+	}
+
+	// Build the per-particle BLAS on GPU (supports ALLOW_UPDATE for dynamic particles)
+	D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC buildDesc = {};
+	buildDesc.Inputs = m_perParticleBLASInputs;
+	buildDesc.ScratchAccelerationStructureData = blasScratch->GetGPUVirtualAddress();
+	buildDesc.DestAccelerationStructureData = blasResult->GetGPUVirtualAddress();
+
+	cmdList4->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+
+	// Add UAV barrier to ensure per-particle BLAS is built before ray queries
+	D3D12_RESOURCE_BARRIER uavBarrier = {};
+	uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+	uavBarrier.UAV.pResource = blasResult;
+	cmdList->ResourceBarrier(1, &uavBarrier);
+
+	LOGI("ASBuilder::BuildPerParticleBLAS - GPU build commands completed");
 }
 
 void ASBuilder::BuildTLASGPU(ID3D12GraphicsCommandList* cmdList,
