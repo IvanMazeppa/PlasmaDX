@@ -14,23 +14,21 @@ cbuffer LightingConstants : register(b0)
 };
 
 // Input: Particle positions (read from particle system buffer)
+// CRITICAL: Must match src/particles/ParticleSystem.h Particle struct exactly (32 bytes)
 struct Particle
 {
-    float3 position;
-    float3 velocity;
-    float3 color;
-    float temperature;
-    float mass;
-    float lifetime;
-    float _pad0;
-    float _pad1;
+    float3 position;    // Offset 0-11
+    float temperature;  // Offset 12-15
+    float3 velocity;    // Offset 16-27
+    float density;      // Offset 28-31
+    // Note: HLSL pads to 64 bytes for structured buffer alignment
 };
 
 StructuredBuffer<Particle> particles : register(t0);
 
 // Input: Emission grid (output from emission_grid_build.hlsl)
-// Reading as ByteAddressBuffer to match UAV type
-ByteAddressBuffer emissionGrid : register(t1);
+// Reading as StructuredBuffer<uint> to match UAV type
+StructuredBuffer<uint> emissionGrid : register(t1);
 
 // Output: Lighting contribution per particle (RGB = additive light color, A = unused)
 // CRITICAL FIX: Use RWBuffer (typed) to match the typed UAV descriptor created in App.cpp
@@ -62,14 +60,14 @@ float3 SampleGrid(int3 coord)
         return float3(0, 0, 0);
 
     uint index = GridCoordToIndex((uint3)coord);
-    uint baseAddr = index * 16;  // 16 bytes per cell
+    uint baseIndex = index * 4;  // 4 uints per cell (RGBCount)
 
     // Read fixed-point integers and convert to float (divide by 256)
     float4 cell;
-    cell.x = float(asint(emissionGrid.Load(baseAddr + 0))) / 256.0;
-    cell.y = float(asint(emissionGrid.Load(baseAddr + 4))) / 256.0;
-    cell.z = float(asint(emissionGrid.Load(baseAddr + 8))) / 256.0;
-    cell.w = float(asint(emissionGrid.Load(baseAddr + 12))) / 256.0;
+    cell.x = float(asint(emissionGrid[baseIndex + 0])) / 256.0;
+    cell.y = float(asint(emissionGrid[baseIndex + 1])) / 256.0;
+    cell.z = float(asint(emissionGrid[baseIndex + 2])) / 256.0;
+    cell.w = float(asint(emissionGrid[baseIndex + 3])) / 256.0;
 
     // Return total accumulated emission (don't normalize by count)
     // We want brighter regions where more hot particles are concentrated

@@ -11,23 +11,22 @@ cbuffer GridConstants : register(b0)
 };
 
 // Input: Particle buffer (direct access to 3D positions)
+// Particle structure matching ParticleSystem layout (32 bytes + padding to 64)
+// CRITICAL: Must match src/particles/ParticleSystem.h Particle struct exactly
 struct Particle
 {
-    float3 position;
-    float3 velocity;
-    float3 color;
-    float temperature;
-    float mass;
-    float lifetime;
-    float _pad0;
-    float _pad1;
+    float3 position;    // Offset 0-11
+    float temperature;  // Offset 12-15
+    float3 velocity;    // Offset 16-27
+    float density;      // Offset 28-31
+    // Note: HLSL pads to 64 bytes for structured buffer alignment
 };
 
 StructuredBuffer<Particle> particles : register(t0);
 
 // Output: 3D spatial grid accumulating emission color + particle count
-// Using RWByteAddressBuffer for atomic float operations
-RWByteAddressBuffer emissionGrid : register(u0);
+// Using RWStructuredBuffer<uint> for working atomic operations (int-based)
+RWStructuredBuffer<uint> emissionGrid : register(u0);
 
 // Helper: Convert 3D grid coordinates to linear buffer index
 uint GridCoordToIndex(uint3 coord)
@@ -73,17 +72,33 @@ float3 TemperatureToEmissionColor(float temperature)
 // Helper: Atomic integer addition (converted from float)
 // Store as fixed-point integer (multiply by 256) to allow atomic operations
 // This avoids GPU timeout from float atomic compare-exchange loops
-void AtomicAddInt(RWByteAddressBuffer buffer, uint address, float value)
+void AtomicAddInt(uint index, float value)
 {
     // Convert float to fixed-point integer (8.24 format: 256 = 1.0)
     int intValue = int(value * 256.0);
-    buffer.InterlockedAdd(address, intValue);
+    // CRITICAL FIX: Don't capture originalValue - causes dead code elimination
+    InterlockedAdd(emissionGrid[index], intValue);  // 2-parameter version
 }
 
 [numthreads(256, 1, 1)]
 void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
     uint particleIndex = dispatchThreadID.x;
+
+    // DIAGNOSTIC: First thread writes test pattern to verify shader execution
+    if (particleIndex == 0) {
+        emissionGrid[0] = asuint(999.0f * 256.0f);   // Cell[0].R
+        emissionGrid[1] = asuint(888.0f * 256.0f);   // Cell[0].G
+        emissionGrid[2] = asuint(777.0f * 256.0f);   // Cell[0].B
+        emissionGrid[3] = asuint(666.0f * 256.0f);   // Cell[0].Count
+    }
+
+    // DIAGNOSTIC: Test atomics on cell[1] - every thread adds 1
+    // With 100,000 particles, cell[1] should accumulate to ~25,600,000 (100000 * 256)
+    AtomicAddInt(4, 1.0f);  // Cell[1].R (cell 1 starts at index 4)
+    AtomicAddInt(5, 1.0f);  // Cell[1].G
+    AtomicAddInt(6, 1.0f);  // Cell[1].B
+    AtomicAddInt(7, 1.0f);  // Cell[1].Count
 
     // Early exit if outside particle count
     if (particleIndex >= particleCount)
@@ -92,32 +107,30 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     // Read particle data
     Particle p = particles[particleIndex];
 
-    // Calculate emission strength based on temperature
-    // Only hot particles (>emissionThreshold) emit light
-    if (p.temperature < emissionThreshold)
-        return;
+    // DIAGNOSTIC: Force ALL particles to emit light (bypass temperature check entirely)
+    // Original check: if (p.temperature < emissionThreshold) return;
+    // Temporarily disabled to diagnose zero-emission issue
 
-    // Calculate emission strength based on temperature (linear for now)
-    float normalizedTemp = saturate(p.temperature / 26000.0);
-    float emissionStrength = normalizedTemp * 5.0;  // Moderate emission strength
+    // DIAGNOSTIC: Force constant emission strength to verify pipeline works
+    float emissionStrength = 10.0;  // Constant bright emission for all particles
 
-    // Get emission color from temperature
-    float3 emissionColor = TemperatureToEmissionColor(p.temperature);
+    // DIAGNOSTIC: Force bright white emission color
+    float3 emissionColor = float3(1.0, 1.0, 1.0);  // Pure white for visibility
 
     // Convert particle world position to grid coordinates
     uint3 gridCoord = WorldPosToGridCoord(p.position);
     uint gridIndex = GridCoordToIndex(gridCoord);
 
     // Accumulate emission into grid cell using integer atomics
-    // Each cell is 16 bytes (4 ints storing fixed-point floats)
-    uint baseAddr = gridIndex * 16;
+    // Each cell is 4 uints storing fixed-point floats (RGBCount)
+    uint baseIndex = gridIndex * 4;  // 4 uints per cell
 
     // Emission color weighted by intensity
     float3 weightedEmission = emissionColor * emissionStrength;
 
-    // Atomic integer add (hardware-optimized, no infinite loop)
-    AtomicAddInt(emissionGrid, baseAddr + 0, weightedEmission.x);
-    AtomicAddInt(emissionGrid, baseAddr + 4, weightedEmission.y);
-    AtomicAddInt(emissionGrid, baseAddr + 8, weightedEmission.z);
-    AtomicAddInt(emissionGrid, baseAddr + 12, emissionStrength);
+    // Atomic integer add using RWStructuredBuffer<uint>
+    AtomicAddInt(baseIndex + 0, weightedEmission.x);
+    AtomicAddInt(baseIndex + 1, weightedEmission.y);
+    AtomicAddInt(baseIndex + 2, weightedEmission.z);
+    AtomicAddInt(baseIndex + 3, emissionStrength);
 }

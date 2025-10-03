@@ -2236,6 +2236,12 @@ void App::renderFrameDXR() {
 				// Update particle physics (accretion disk simulation)
 				m_meshParticleSystem->UpdatePhysics(m_cmdList.Get(), deltaTime);
 
+				// UAV barrier: Ensure particle physics writes complete before subsequent reads
+				D3D12_RESOURCE_BARRIER uavBarrier{};
+				uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+				uavBarrier.UAV.pResource = m_meshParticleSystem->GetParticleBuffer();
+				m_cmdList->ResourceBarrier(1, &uavBarrier);
+
 				// Mode 9.1+: Generate shadow map before particle rendering (RayQuery compute shader)
 				if (m_mode9SubMode >= Mode9SubMode::ShadowMap) {
 					renderShadowMap();  // Runs on main command list, no fence wait needed
@@ -3158,15 +3164,15 @@ bool App::createEmissionGridResources() {
         return false;
     }
 
-    // Create RAW UAV for ByteAddressBuffer atomic operations
+    // Create structured UAV for RWStructuredBuffer<uint> with working atomic operations
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
-    uavDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+    uavDesc.Format = DXGI_FORMAT_UNKNOWN;  // Structured buffer uses UNKNOWN format
     uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     uavDesc.Buffer.FirstElement = 0;
-    uavDesc.Buffer.NumElements = gridBufferSize / 4;  // Size in DWORDs
-    uavDesc.Buffer.StructureByteStride = 0;
+    uavDesc.Buffer.NumElements = gridBufferSize / 4;  // Size in DWORDs (4 uints per cell)
+    uavDesc.Buffer.StructureByteStride = 4;  // 4 bytes per uint element
     uavDesc.Buffer.CounterOffsetInBytes = 0;
-    uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+    uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;  // No RAW flag for structured buffer
 
     D3D12_CPU_DESCRIPTOR_HANDLE gridUavHandle = m_descriptorAllocator->GetCPUHandle(m_emissionGridUavIndex);
     m_device->CreateUnorderedAccessView(m_emissionGridBuffer.Get(), nullptr, &uavDesc, gridUavHandle);
@@ -3179,13 +3185,13 @@ bool App::createEmissionGridResources() {
     }
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_R32_UINT;  // Simple typed view for ByteAddressBuffer reading
+    srvDesc.Format = DXGI_FORMAT_UNKNOWN;  // Structured buffer uses UNKNOWN format
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc.Buffer.FirstElement = 0;
-    srvDesc.Buffer.NumElements = gridBufferSize / 4;  // Size in DWORDs
-    srvDesc.Buffer.StructureByteStride = 0;
-    srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;  // No RAW flag for SRV
+    srvDesc.Buffer.NumElements = gridBufferSize / 4;  // Size in uints
+    srvDesc.Buffer.StructureByteStride = 4;  // 4 bytes per uint element
+    srvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
 
     D3D12_CPU_DESCRIPTOR_HANDLE gridSrvHandle = m_descriptorAllocator->GetCPUHandle(m_emissionGridSrvIndex);
     m_device->CreateShaderResourceView(m_emissionGridBuffer.Get(), &srvDesc, gridSrvHandle);
@@ -3257,6 +3263,58 @@ bool App::createEmissionGridResources() {
 
     D3D12_CPU_DESCRIPTOR_HANDLE lightingSrvHandle = m_descriptorAllocator->GetCPUHandle(m_particleLightingSrvIndex);
     m_device->CreateShaderResourceView(m_particleLightingBuffer.Get(), &lightingSrvDesc, lightingSrvHandle);
+
+    // 2.5. Create readback buffers for diagnostics (CPU-readable copies)
+    D3D12_HEAP_PROPERTIES readbackHeapProps = {};
+    readbackHeapProps.Type = D3D12_HEAP_TYPE_READBACK;
+
+    D3D12_RESOURCE_DESC readbackGridDesc = {};
+    readbackGridDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    readbackGridDesc.Width = 64 * sizeof(float) * 4;  // Sample first 64 grid cells
+    readbackGridDesc.Height = 1;
+    readbackGridDesc.DepthOrArraySize = 1;
+    readbackGridDesc.MipLevels = 1;
+    readbackGridDesc.Format = DXGI_FORMAT_UNKNOWN;
+    readbackGridDesc.SampleDesc.Count = 1;
+    readbackGridDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    readbackGridDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = m_device->CreateCommittedResource(
+        &readbackHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &readbackGridDesc,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr,
+        IID_PPV_ARGS(&m_emissionGridReadback));
+    if (FAILED(hr)) {
+        LOGE("Failed to create emission grid readback buffer: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    D3D12_RESOURCE_DESC readbackLightingDesc = {};
+    readbackLightingDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    readbackLightingDesc.Width = 16 * sizeof(float) * 4;  // Sample first 16 particles' lighting
+    readbackLightingDesc.Height = 1;
+    readbackLightingDesc.DepthOrArraySize = 1;
+    readbackLightingDesc.MipLevels = 1;
+    readbackLightingDesc.Format = DXGI_FORMAT_UNKNOWN;
+    readbackLightingDesc.SampleDesc.Count = 1;
+    readbackLightingDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    readbackLightingDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+    hr = m_device->CreateCommittedResource(
+        &readbackHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &readbackLightingDesc,
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        nullptr,
+        IID_PPV_ARGS(&m_particleLightingReadback));
+    if (FAILED(hr)) {
+        LOGE("Failed to create particle lighting readback buffer: 0x" + std::to_string(static_cast<uint32_t>(hr)));
+        return false;
+    }
+
+    LOGI("Created diagnostic readback buffers (64 grid cells, 16 particles)");
 
     // 3. Create constant buffer for grid builder shader
     const UINT constantBufferSize = 256;  // Align to 256 bytes for CBV
@@ -3404,6 +3462,13 @@ void App::renderShadowMap() {
 void App::computeEmissionGrid() {
     // Mode 9.2 Milestone 2: Build spatial grid from emission buffer
     if (!m_emissionGridPSO || !m_emissionTexture || m_emissionGridUavIndex == UINT_MAX) {
+        static bool s_loggedSkip = false;
+        if (!s_loggedSkip) {
+            LOGE("computeEmissionGrid SKIPPED - PSO=" + std::string(m_emissionGridPSO ? "OK" : "NULL") +
+                 " EmissionTex=" + std::string(m_emissionTexture ? "OK" : "NULL") +
+                 " UavIdx=" + (m_emissionGridUavIndex == UINT_MAX ? "INVALID" : std::to_string(m_emissionGridUavIndex)));
+            s_loggedSkip = true;
+        }
         return; // Not initialized
     }
 
@@ -3476,8 +3541,8 @@ void App::computeEmissionGrid() {
 
     gridConstants.particleCount = m_mode9ParticleCount;
     gridConstants.gridResolution = EMISSION_GRID_RESOLUTION;
-    gridConstants.worldRadius = 20.0f;  // Match particle system bounds
-    gridConstants.emissionThreshold = 5000.0f;  // Hot particles emit (realistic threshold)
+    gridConstants.worldRadius = 80.0f;  // Cover full accretion disk (OUTER_DISK_RADIUS=60.0 + margin)
+    gridConstants.emissionThreshold = 0.0f;  // DIAGNOSTIC: Capture ALL particles regardless of temperature
 
     m_cmdList->SetComputeRoot32BitConstants(2, sizeof(GridConstants) / 4, &gridConstants, 0);
 
@@ -3550,10 +3615,10 @@ void App::computeParticleLighting() {
 
     lightingConstants.particleCount = m_mode9ParticleCount;
     lightingConstants.gridResolution = EMISSION_GRID_RESOLUTION;
-    lightingConstants.worldRadius = 20.0f;
-    lightingConstants.lightingStrength = 25.0f;  // Increased for more visible glow
+    lightingConstants.worldRadius = 80.0f;  // Match emission grid bounds
+    lightingConstants.lightingStrength = 50.0f;  // MASSIVELY increased to make effect unmistakable
     lightingConstants.cameraPos = m_camera->GetPosition();
-    lightingConstants.falloffRadius = 12.0f;  // Much wider influence for visible halos
+    lightingConstants.falloffRadius = 40.0f;  // Wide influence to reach distant particles
 
     m_cmdList->SetComputeRoot32BitConstants(3, sizeof(LightingConstants) / 4, &lightingConstants, 0);
 
@@ -3578,6 +3643,82 @@ void App::computeParticleLighting() {
     postBarriers[1].Transition.Subresource = 0;
 
     m_cmdList->ResourceBarrier(2, postBarriers);
+
+    // DIAGNOSTIC: Copy GPU buffer samples to CPU-readable memory (once per 120 frames)
+    static int s_diagnosticFrameCounter = 0;
+    if (++s_diagnosticFrameCounter >= 120) {
+        s_diagnosticFrameCounter = 0;
+
+        // Transition buffers to COPY_SOURCE
+        D3D12_RESOURCE_BARRIER copyBarriers[2]{};
+        copyBarriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        copyBarriers[0].Transition.pResource = m_emissionGridBuffer.Get();
+        copyBarriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        copyBarriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        copyBarriers[0].Transition.Subresource = 0;
+
+        copyBarriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        copyBarriers[1].Transition.pResource = m_particleLightingBuffer.Get();
+        copyBarriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        copyBarriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        copyBarriers[1].Transition.Subresource = 0;
+
+        m_cmdList->ResourceBarrier(2, copyBarriers);
+
+        // Copy samples
+        m_cmdList->CopyBufferRegion(m_emissionGridReadback.Get(), 0, m_emissionGridBuffer.Get(), 0, 64 * sizeof(float) * 4);
+        m_cmdList->CopyBufferRegion(m_particleLightingReadback.Get(), 0, m_particleLightingBuffer.Get(), 0, 16 * sizeof(float) * 4);
+
+        // Restore states
+        copyBarriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        copyBarriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        copyBarriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        copyBarriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        m_cmdList->ResourceBarrier(2, copyBarriers);
+
+        // Queue fence for CPU readback
+        static UINT64 s_readbackFenceValue = 0;
+        const UINT64 currentFence = ++s_readbackFenceValue;
+        m_queue->Signal(m_fence.Get(), currentFence);
+
+        // Wait for GPU copy to complete, then read data on CPU
+        if (m_fence->GetCompletedValue() < currentFence) {
+            HANDLE eventHandle = CreateEventEx(nullptr, nullptr, 0, EVENT_ALL_ACCESS);
+            m_fence->SetEventOnCompletion(currentFence, eventHandle);
+            WaitForSingleObject(eventHandle, INFINITE);
+            CloseHandle(eventHandle);
+        }
+
+        // Read emission grid sample
+        float* gridData = nullptr;
+        m_emissionGridReadback->Map(0, nullptr, reinterpret_cast<void**>(&gridData));
+        LOGI("=== EMISSION GRID SAMPLE (cells 0-3 and 60-63) ===");
+        for (int i = 0; i < 4; i++) {
+            LOGI("Cell[" + std::to_string(i) + "]: R=" + std::to_string(gridData[i*4+0]) +
+                 " G=" + std::to_string(gridData[i*4+1]) +
+                 " B=" + std::to_string(gridData[i*4+2]) +
+                 " Count=" + std::to_string(gridData[i*4+3]));
+        }
+        for (int i = 60; i < 64; i++) {
+            LOGI("Cell[" + std::to_string(i) + "]: R=" + std::to_string(gridData[i*4+0]) +
+                 " G=" + std::to_string(gridData[i*4+1]) +
+                 " B=" + std::to_string(gridData[i*4+2]) +
+                 " Count=" + std::to_string(gridData[i*4+3]));
+        }
+        m_emissionGridReadback->Unmap(0, nullptr);
+
+        // Read particle lighting sample
+        float* lightingData = nullptr;
+        m_particleLightingReadback->Map(0, nullptr, reinterpret_cast<void**>(&lightingData));
+        LOGI("=== PARTICLE LIGHTING SAMPLE (first 4 particles) ===");
+        for (int i = 0; i < 4; i++) {
+            LOGI("Particle[" + std::to_string(i) + "]: R=" + std::to_string(lightingData[i*4+0]) +
+                 " G=" + std::to_string(lightingData[i*4+1]) +
+                 " B=" + std::to_string(lightingData[i*4+2]) +
+                 " W=" + std::to_string(lightingData[i*4+3]));
+        }
+        m_particleLightingReadback->Unmap(0, nullptr);
+    }
 }
 
 bool App::createShadowComputePipeline() {

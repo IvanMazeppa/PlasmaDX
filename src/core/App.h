@@ -329,7 +329,7 @@ private:
 	void computeEmissionGrid();
 	void computeParticleLighting();
 
-	static constexpr UINT EMISSION_GRID_RESOLUTION = 32;  // 32^3 = 32,768 cells (better spatial precision)
+	static constexpr UINT EMISSION_GRID_RESOLUTION = 128;  // 128^3 = 2,097,152 cells (STRESS TEST - should tank FPS if working)
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionGridBuffer;  // float4 per cell: rgb=emission, w=count
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleLightingBuffer;  // float4 per particle: rgb=light
 	UINT m_emissionGridUavIndex = UINT_MAX;
@@ -344,6 +344,10 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12Resource> m_gridConstantsBuffer;  // CBV for grid builder shader
 	Microsoft::WRL::ComPtr<ID3D12PipelineState> m_particleLightingPSO;
 	Microsoft::WRL::ComPtr<ID3D12RootSignature> m_particleLightingRootSig;
+
+	// Diagnostic: GPU readback buffers for debugging
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_emissionGridReadback;
+	Microsoft::WRL::ComPtr<ID3D12Resource> m_particleLightingReadback;
 
 	// Voxel particle system methods (Mode 6)
 	bool initializeVoxelSystem();
