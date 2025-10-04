@@ -67,6 +67,17 @@ public:
                         D3D12_CPU_DESCRIPTOR_HANDLE emissionRtvHandle = {},
                         D3D12_GPU_DESCRIPTOR_HANDLE particleLightingSrv = {});
 
+    // Mode 10: Compute + traditional VS/PS rendering (bypasses mesh shader issues)
+    void RenderComputeParticles(ID3D12GraphicsCommandList* cmdList,
+                               const DirectX::XMMATRIX& viewMatrix,
+                               const DirectX::XMMATRIX& projMatrix,
+                               const DirectX::XMFLOAT3& cameraPos,
+                               D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
+                               UINT width, UINT height,
+                               D3D12_GPU_DESCRIPTOR_HANDLE particleBufferSrv,
+                               D3D12_GPU_DESCRIPTOR_HANDLE particleLightingSrv = {},
+                               uint32_t mode10SubMode = 0);
+
     // Runtime adjustable parameters
     void AdjustGravity(float delta) { m_gravityStrength += delta; }
     void AdjustTurbulence(float delta) { m_turbulenceStrength += delta; }
@@ -96,6 +107,10 @@ private:
     bool CompileShaders();
     void InitializeAccretionDisk();
 
+    // Mode 10: Compute + traditional VS/PS pipeline
+    bool CreateComputeParticlePipeline();
+    bool CreateTraditionalRasterPipeline();
+
     // Device and resources
     Microsoft::WRL::ComPtr<ID3D12Device> m_device;
     Microsoft::WRL::ComPtr<ID3D12Device2> m_device2; // For mesh shaders
@@ -115,6 +130,17 @@ private:
     Microsoft::WRL::ComPtr<ID3DBlob> m_computeShader;
     Microsoft::WRL::ComPtr<ID3DBlob> m_meshShader;
     Microsoft::WRL::ComPtr<ID3DBlob> m_pixelShader;
+
+    // Mode 10: Compute + traditional VS/PS pipeline resources
+    Microsoft::WRL::ComPtr<ID3DBlob> m_computeParticleBuildShader;
+    Microsoft::WRL::ComPtr<ID3DBlob> m_traditionalVertexShader;
+    Microsoft::WRL::ComPtr<ID3DBlob> m_traditionalPixelShader;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_computeParticleBuildPSO;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_traditionalRasterPSO;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_computeParticleBuildRootSig;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_traditionalRasterRootSig;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_particleVertexBuffer;  // 400K vertices (100K particles × 4)
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_particleIndexBuffer;   // 600K indices (100K particles × 6)
 
     // Parameters
     uint32_t m_particleCount;

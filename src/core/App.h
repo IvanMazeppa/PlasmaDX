@@ -240,6 +240,17 @@ private:
     Mode9SubMode m_mode9SubMode = Mode9SubMode::Baseline;
     uint32_t m_mode9ParticleCount = 100000;  // Runtime adjustable (10K-500K)
 
+    // Mode 10 sub-modes: Compute-based particle rendering (F9-F12)
+    // Clean implementation to avoid Mode 9 mesh shader compatibility issues
+    enum class Mode10SubMode {
+        Baseline = 0,        // Compute + traditional VS/PS, no lighting
+        RTLighting = 1,      // Compute + traditional VS/PS with RT lighting
+        RTShadows = 2,       // RT lighting + shadows
+        FullPipeline = 3     // RT lighting + shadows + effects
+    };
+    Mode10SubMode m_mode10SubMode = Mode10SubMode::Baseline;
+    bool m_mode10Active = false;  // F9 toggles Mode 10 on/off
+
     // Plasma Accretion Disk physics controls (Mode 5)
     float m_plasmaAngularVel = 0.8f;      // Angular velocity multiplier (0.1-2.0)
     float m_plasmaGravityExp = 1.5f;      // Gravity strength exponent (0.5-2.5)

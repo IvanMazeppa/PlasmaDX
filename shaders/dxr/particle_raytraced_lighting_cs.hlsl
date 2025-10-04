@@ -24,8 +24,9 @@ StructuredBuffer<Particle> g_particles : register(t0);
 // Input: Ray tracing acceleration structure (per-particle BLAS)
 RaytracingAccelerationStructure g_particleBVH : register(t1);
 
-// Output: Lighting contribution per particle (RGB additive light)
-RWStructuredBuffer<float3> g_particleLighting : register(u0);
+// Output: Lighting contribution per particle (RGBA, alpha unused)
+// MUST be RWBuffer<float4> to match typed UAV format DXGI_FORMAT_R32G32B32A32_FLOAT
+RWBuffer<float4> g_particleLighting : register(u0);
 
 // Helper: Fibonacci hemisphere sampling for even ray distribution
 float3 FibonacciHemisphere(uint sampleIndex, uint numSamples, float3 normal)
@@ -139,5 +140,6 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     }
 
     // Average lighting over all rays and apply global intensity
-    g_particleLighting[particleIdx] = (accumulatedLight / float(raysPerParticle)) * lightingIntensity;
+    // Write as float4 (RGB + 0 for alpha) to match buffer format
+    g_particleLighting[particleIdx] = float4((accumulatedLight / float(raysPerParticle)) * lightingIntensity, 0.0);
 }

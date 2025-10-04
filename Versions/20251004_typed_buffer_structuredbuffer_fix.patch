@@ -1,0 +1,683 @@
+diff --git a/shaders/particles/particle_mesh.hlsl b/shaders/particles/particle_mesh.hlsl
+index ea9aa8b..eb9aa87 100644
+--- a/shaders/particles/particle_mesh.hlsl
++++ b/shaders/particles/particle_mesh.hlsl
+@@ -35,9 +35,14 @@ cbuffer ModeParams : register(b1) {
+     float3 modePadding;
+ };
+ 
++// Particle lighting structure (Mode 9.2+)
++struct ParticleLighting {
++    float4 color;  // rgb = additive lighting, w = unused
++};
++
+ StructuredBuffer<Particle> particles : register(t0);
+ Texture2D<float> shadowMap : register(t1);  // Shadow map (Mode 9.1+)
+-Buffer<float4> particleLighting : register(t2);  // Particle lighting (Mode 9.2+) - Typed buffer, not structured
++StructuredBuffer<ParticleLighting> particleLighting : register(t2);  // Particle lighting (Mode 9.2+)
+ SamplerState shadowSampler : register(s0);
+ ConstantBuffer<RenderConstants> renderConstants : register(b0);
+ 
+@@ -97,8 +102,12 @@ void main(
+ 
+     Particle p = particles[particleIndex];
+ 
+-    // Mode 9.2: Read particle lighting contribution
+-    float3 lighting = particleLighting[particleIndex].rgb;
++    // Mode 9.2+: Read particle lighting contribution (only for ParticleRelight mode)
++    float3 lighting = float3(0.0, 0.0, 0.0);
++    if (mode9SubMode >= 2) {  // 2 = ParticleRelight mode
++        // DIAGNOSTIC: Test if buffer read works at all - read first element for ALL particles
++        lighting = particleLighting[0].color.rgb;  // All particles should show same lighting as particle 0
++    }
+ 
+     // Calculate camera-facing billboard vectors (matches Vulkan reference)
+     float3 worldPos = p.position;
+diff --git a/src/core/App.cpp b/src/core/App.cpp
+index 8fde398..b6ac8b8 100644
+--- a/src/core/App.cpp
++++ b/src/core/App.cpp
+@@ -1681,7 +1681,8 @@ bool App::initializeDXRCore() {
+ 						LOGW("Failed to create lighting compute pipelines - Mode 9.2 lighting disabled");
+ 					} else {
+ 						LOGI("Mode 9.2 lighting compute pipelines ready");
+-					
++					}
++
+ 					// Create particle buffer SRV for lighting compute shader
+ 					UINT particleSrvIndex = m_descriptorAllocator->Allocate();
+ 					if (particleSrvIndex != UINT_MAX) {
+@@ -1691,10 +1692,22 @@ bool App::initializeDXRCore() {
+ 							LOGI("Particle buffer SRV created at index " + std::to_string(particleSrvIndex));
+ 						}
+ 					}
++
++					// Mode 9.2 RT: Create per-particle BLAS and RT lighting pipeline
++					if (!createPerParticleBLASResources()) {
++						LOGW("Failed to create per-particle BLAS - Mode 9.2 RT lighting disabled");
++					} else {
++						LOGI("Mode 9.2 per-particle BLAS ready");
++
++						if (!createRTLightingPipeline()) {
++							LOGW("Failed to create RT lighting pipeline - Mode 9.2 RT disabled");
++						} else {
++							LOGI("Mode 9.2 RT lighting pipeline ready");
++						}
+ 					}
+-					}
+-					}
+-				}
++					}  // End else for createEmissionGridResources
++					}  // End else for createEmissionTexture
++				}  // End else for mesh particle system initialization
+ 			} catch (const std::exception& e) {
+ 				LOGE(std::string("Mesh particle system initialization threw exception: ") + e.what());
+ 				m_meshParticleSystem.reset();
+@@ -2297,14 +2310,16 @@ void App::renderFrameDXR() {
+ 				// Mode 9.2: Get particle lighting SRV GPU handle
+ 				D3D12_GPU_DESCRIPTOR_HANDLE lightingSrvGpuHandle = m_descriptorAllocator->GetGPUHandle(m_particleLightingSrvIndex);
+ 
+-				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
+-					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
+-					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode),
+-					m_emissionRtvHandle,  // Mode 9.2: Pass emission RTV for dual RT output
+-					lightingSrvGpuHandle);  // Mode 9.2: Pass particle lighting SRV
++				// DIAGNOSTIC: Log SRV/UAV indices for lighting buffer
++				static bool s_indicesLogged = false;
++				if (!s_indicesLogged && m_mode9SubMode >= Mode9SubMode::ParticleRelight) {
++					LOGI("RT Lighting buffer descriptors: UAV index=" + std::to_string(m_particleLightingUavIndex) +
++					     " SRV index=" + std::to_string(m_particleLightingSrvIndex) +
++					     " SRV GPU handle=0x" + std::to_string(lightingSrvGpuHandle.ptr));
++					s_indicesLogged = true;
++				}
+ 
+-				// Mode 9.2 Milestone 2-3: Spatial grid lighting
+-				// FIXED: Descriptor table mismatch + resource state transitions
++				// Mode 9.2 RT: Compute lighting BEFORE rendering particles (FIX: eliminates one-frame delay)
+ 				if (m_mode9SubMode >= Mode9SubMode::ParticleRelight && m_emissionGridPSO) {
+ 					// Transition emission texture to SRV for compute reading
+ 					D3D12_RESOURCE_BARRIER emissionToSRV{};
+@@ -2316,7 +2331,8 @@ void App::renderFrameDXR() {
+ 					m_cmdList->ResourceBarrier(1, &emissionToSRV);
+ 
+ 					// Build spatial grid from emission buffer
+-					computeEmissionGrid();
++					// DISABLED for RT lighting testing
++					// computeEmissionGrid();
+ 
+ 					// Transition lighting buffer from SRV (previous frame) back to UAV for clearing/writing
+ 					// Track which mode we were in last frame to detect mode changes
+@@ -2346,7 +2362,26 @@ void App::renderFrameDXR() {
+ 						0, nullptr);
+ 
+ 					// Mode 9.2 Milestone 3: Apply grid-based lighting to particles
+-					computeParticleLighting();
++					// DISABLED: Spatial grid conflicts with RT lighting (both write to same buffer)
++					// computeParticleLighting();
++
++					// Mode 9.2 RT: Per-particle BLAS and ray traced lighting (GENUINE DXR)
++					if (m_perParticleBLAS && m_rtLightingPSO) {
++						// Update particle AABBs from current positions
++						updateParticleAABBs();
++
++						// Compute ray traced lighting (RayQuery)
++						computeRTLighting();
++
++						// CRITICAL: Transition lighting buffer from UAV (write) to SRV (read) for particle rendering
++						D3D12_RESOURCE_BARRIER lightingToSRV = {};
++						lightingToSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++						lightingToSRV.Transition.pResource = m_particleLightingBuffer.Get();
++						lightingToSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++						lightingToSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++						lightingToSRV.Transition.Subresource = 0;
++						m_cmdList->ResourceBarrier(1, &lightingToSRV);
++					}
+ 
+ 					// Transition emission texture back to RENDER_TARGET for next frame
+ 					emissionToSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+@@ -2354,6 +2389,13 @@ void App::renderFrameDXR() {
+ 					m_cmdList->ResourceBarrier(1, &emissionToSRV);
+ 				}
+ 
++				// Render particles AFTER RT lighting is computed (FIX: eliminates one-frame delay)
++				m_meshParticleSystem->RenderParticles(m_cmdList.Get(),
++					viewMatrix, projMatrix, cameraPos, rtvHandle, m_width, m_height,
++					shadowMapGpuHandle, static_cast<uint32_t>(m_mode9SubMode),
++					m_emissionRtvHandle,  // Mode 9.2: Pass emission RTV for dual RT output
++					lightingSrvGpuHandle);  // Mode 9.2: Pass particle lighting SRV
++
+ 				// F8 Debug: Copy emission buffer to backbuffer for visualization
+ 				if (m_showEmissionDebug && m_emissionTexture) {
+ 					// Transition emission texture from RENDER_TARGET to COPY_SOURCE
+@@ -3231,15 +3273,15 @@ bool App::createEmissionGridResources() {
+         return false;
+     }
+ 
+-    // Create typed UAV for particle lighting buffer (NOT raw like grid buffer)
++    // Create structured UAV for particle lighting buffer (float4 per particle)
+     D3D12_UNORDERED_ACCESS_VIEW_DESC lightingUavDesc = {};
+-    lightingUavDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
++    lightingUavDesc.Format = DXGI_FORMAT_UNKNOWN;  // Structured buffer uses UNKNOWN
+     lightingUavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+     lightingUavDesc.Buffer.FirstElement = 0;
+     lightingUavDesc.Buffer.NumElements = particleCount;
+-    lightingUavDesc.Buffer.StructureByteStride = 0;
++    lightingUavDesc.Buffer.StructureByteStride = 16;  // sizeof(float4) = 16 bytes
+     lightingUavDesc.Buffer.CounterOffsetInBytes = 0;
+-    lightingUavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;  // NO RAW flag!
++    lightingUavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+ 
+     D3D12_CPU_DESCRIPTOR_HANDLE lightingUavHandle = m_descriptorAllocator->GetCPUHandle(m_particleLightingUavIndex);
+     m_device->CreateUnorderedAccessView(m_particleLightingBuffer.Get(), nullptr, &lightingUavDesc, lightingUavHandle);
+@@ -3251,14 +3293,14 @@ bool App::createEmissionGridResources() {
+         return false;
+     }
+ 
+-    // CRITICAL FIX: Create fresh SRV descriptor (don't reuse emission grid descriptor)
++    // CRITICAL FIX: Create structured SRV descriptor (matches UAV format)
+     D3D12_SHADER_RESOURCE_VIEW_DESC lightingSrvDesc = {};
+-    lightingSrvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
++    lightingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;  // Structured buffer uses UNKNOWN
+     lightingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+     lightingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+     lightingSrvDesc.Buffer.FirstElement = 0;
+     lightingSrvDesc.Buffer.NumElements = particleCount;
+-    lightingSrvDesc.Buffer.StructureByteStride = 0;  // Typed buffer
++    lightingSrvDesc.Buffer.StructureByteStride = 16;  // sizeof(float4) = 16 bytes
+     lightingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+ 
+     D3D12_CPU_DESCRIPTOR_HANDLE lightingSrvHandle = m_descriptorAllocator->GetCPUHandle(m_particleLightingSrvIndex);
+@@ -3358,6 +3400,43 @@ bool App::createEmissionGridResources() {
+     return true;
+ }
+ 
++bool App::createPerParticleBLASResources() {
++    LOGI("Creating per-particle BLAS resources for RT lighting...");
++
++    uint32_t particleCount = m_mode9ParticleCount;
++    float particleRadius = 5.0f;  // Match particle render size (m_particleSize from ParticleSystem)
++
++    // Create per-particle BLAS with individual AABBs for 100K particles
++    if (!m_asBuilder->CreatePerParticleBLAS(
++        m_perParticleBLAS,
++        m_perParticleBLASScratch,
++        m_particleAABBBuffer,
++        particleCount,
++        particleRadius)) {
++        LOGE("Failed to create per-particle BLAS");
++        return false;
++    }
++
++    // Create SRV for BLAS (acceleration structure SRV for RayQuery)
++    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
++    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
++    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
++    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++    srvDesc.RaytracingAccelerationStructure.Location = m_perParticleBLAS->GetGPUVirtualAddress();
++
++    m_particleBVHSrvIndex = m_descriptorAllocator->Allocate();
++    if (m_particleBVHSrvIndex == UINT_MAX) {
++        LOGE("Failed to allocate SRV for particle BLAS");
++        return false;
++    }
++
++    D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_descriptorAllocator->GetCPUHandle(m_particleBVHSrvIndex);
++    m_device->CreateShaderResourceView(nullptr, &srvDesc, srvHandle);
++
++    LOGI("Per-particle BLAS created: " + std::to_string(particleCount) + " AABBs, SRV index=" + std::to_string(m_particleBVHSrvIndex));
++    return true;
++}
++
+ void App::renderShadowMap() {
+     if (!m_shadowComputePSO || !m_tlasResult || m_shadowMapUavIndex == UINT_MAX) {
+         return; // Not initialized
+@@ -3721,6 +3800,232 @@ void App::computeParticleLighting() {
+     }
+ }
+ 
++void App::updateParticleAABBs() {
++    // Generate AABBs from particle positions and rebuild BLAS
++    PIX_SCOPED_EVENT(m_cmdList.Get(), "Update Particle AABBs");
++
++    static bool logOnce = true;
++    if (logOnce) {
++        LOGI("updateParticleAABBs: First call - PSO=" + std::string(m_aabbGenPSO ? "OK" : "NULL") +
++             " AABBBuffer=" + std::string(m_particleAABBBuffer ? "OK" : "NULL"));
++        logOnce = false;
++    }
++
++    if (!m_aabbGenPSO || !m_particleAABBBuffer) {
++        return;  // Not initialized
++    }
++
++    // Dispatch AABB generation compute shader
++    m_cmdList->SetPipelineState(m_aabbGenPSO.Get());
++    m_cmdList->SetComputeRootSignature(m_aabbGenRootSig.Get());
++
++    // Bind particle SRV (t0)
++    UINT particleSrvIndex = m_meshParticleSystem->GetParticleBufferSRVIndex();
++    D3D12_GPU_DESCRIPTOR_HANDLE particleSrvGpuHandle = m_descriptorAllocator->GetGPUHandle(particleSrvIndex);
++    m_cmdList->SetComputeRootDescriptorTable(0, particleSrvGpuHandle);
++
++    // Allocate UAV for AABB buffer if not already allocated
++    static UINT aabbUavIndex = UINT_MAX;
++    if (aabbUavIndex == UINT_MAX) {
++        aabbUavIndex = m_descriptorAllocator->Allocate();
++        if (aabbUavIndex != UINT_MAX) {
++            D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
++            uavDesc.Format = DXGI_FORMAT_UNKNOWN;
++            uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
++            uavDesc.Buffer.FirstElement = 0;
++            uavDesc.Buffer.NumElements = m_mode9ParticleCount;  // Number of AABBs
++            uavDesc.Buffer.StructureByteStride = sizeof(float) * 6;  // AABB struct size
++            uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
++
++            D3D12_CPU_DESCRIPTOR_HANDLE uavCpuHandle = m_descriptorAllocator->GetCPUHandle(aabbUavIndex);
++            m_device->CreateUnorderedAccessView(m_particleAABBBuffer.Get(), nullptr, &uavDesc, uavCpuHandle);
++        }
++    }
++
++    // Bind AABB UAV (u0)
++    D3D12_GPU_DESCRIPTOR_HANDLE aabbUavGpuHandle = m_descriptorAllocator->GetGPUHandle(aabbUavIndex);
++    m_cmdList->SetComputeRootDescriptorTable(1, aabbUavGpuHandle);
++
++    // Bind constants (b0): particleCount, particleRadius, padding[2]
++    struct AABBConstants {
++        uint32_t particleCount;
++        float particleRadius;
++        float padding[2];
++    } constants = {
++        m_mode9ParticleCount,
++        5.0f,  // Match particle render size
++        {0.0f, 0.0f}
++    };
++    m_cmdList->SetComputeRoot32BitConstants(2, 4, &constants, 0);
++
++    // Dispatch (100,000 particles / 256 threads = 391 groups)
++    uint32_t numGroups = (m_mode9ParticleCount + 255) / 256;
++    m_cmdList->Dispatch(numGroups, 1, 1);
++
++    // UAV barrier for AABB buffer
++    D3D12_RESOURCE_BARRIER uavBarrier = {};
++    uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
++    uavBarrier.UAV.pResource = m_particleAABBBuffer.Get();
++    m_cmdList->ResourceBarrier(1, &uavBarrier);
++
++    // Rebuild BLAS (ALLOW_UPDATE flag makes this fast ~0.3ms)
++    m_asBuilder->BuildPerParticleBLAS(m_cmdList.Get(), m_perParticleBLAS.Get(), m_perParticleBLASScratch.Get());
++}
++
++void App::computeRTLighting() {
++    // Ray traced particle-to-particle lighting using RayQuery
++    PIX_SCOPED_EVENT(m_cmdList.Get(), "RT Particle Lighting");
++
++    static bool logOnce = true;
++    if (logOnce) {
++        LOGI("computeRTLighting: First call - PSO=" + std::string(m_rtLightingPSO ? "OK" : "NULL") +
++             " BLAS=" + std::string(m_perParticleBLAS ? "OK" : "NULL") +
++             " LightingBuffer=" + std::string(m_particleLightingBuffer ? "OK" : "NULL"));
++        logOnce = false;
++    }
++
++    if (!m_rtLightingPSO || !m_perParticleBLAS || !m_particleLightingBuffer) {
++        return;  // Not initialized
++    }
++
++    // DIAGNOSTIC TEST: Clear lighting buffer to bright green (test pattern)
++    // This verifies that the particle renderer CAN see the lighting buffer
++    float testPattern[4] = { 0.0f, 100.0f, 0.0f, 0.0f };  // Bright green
++    m_cmdList->ClearUnorderedAccessViewFloat(
++        m_descriptorAllocator->GetGPUHandle(m_particleLightingUavIndex),
++        m_descriptorAllocator->GetCPUHandle(m_particleLightingUavIndex),
++        m_particleLightingBuffer.Get(),
++        testPattern,
++        0, nullptr);
++
++    // UAV barrier after clear
++    D3D12_RESOURCE_BARRIER clearBarrier = {};
++    clearBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
++    clearBarrier.UAV.pResource = m_particleLightingBuffer.Get();
++    m_cmdList->ResourceBarrier(1, &clearBarrier);
++
++    // DIAGNOSTIC: GPU readback to verify green test pattern was written
++    static int s_readbackFrameCounter = 0;
++    static Microsoft::WRL::ComPtr<ID3D12Resource> s_readbackBuffer;
++
++    if (s_readbackFrameCounter == 60) {  // Readback on frame 60 (after clear settled)
++        if (!s_readbackBuffer) {
++            // Create readback buffer (CPU-readable staging buffer)
++            D3D12_HEAP_PROPERTIES readbackHeapProps = {};
++            readbackHeapProps.Type = D3D12_HEAP_TYPE_READBACK;
++
++            D3D12_RESOURCE_DESC readbackDesc = {};
++            readbackDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++            readbackDesc.Width = 10 * sizeof(float) * 4;  // First 10 particles (40 floats)
++            readbackDesc.Height = 1;
++            readbackDesc.DepthOrArraySize = 1;
++            readbackDesc.MipLevels = 1;
++            readbackDesc.Format = DXGI_FORMAT_UNKNOWN;
++            readbackDesc.SampleDesc.Count = 1;
++            readbackDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++
++            HRESULT hr = m_device->CreateCommittedResource(
++                &readbackHeapProps,
++                D3D12_HEAP_FLAG_NONE,
++                &readbackDesc,
++                D3D12_RESOURCE_STATE_COPY_DEST,
++                nullptr,
++                IID_PPV_ARGS(&s_readbackBuffer));
++
++            if (FAILED(hr)) {
++                LOGE("Failed to create lighting readback buffer");
++            }
++        }
++
++        if (s_readbackBuffer) {
++            // Transition lighting buffer to COPY_SOURCE
++            D3D12_RESOURCE_BARRIER toCopy = {};
++            toCopy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++            toCopy.Transition.pResource = m_particleLightingBuffer.Get();
++            toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++            toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++            toCopy.Transition.Subresource = 0;
++            m_cmdList->ResourceBarrier(1, &toCopy);
++
++            // Copy first 10 particles to readback buffer
++            m_cmdList->CopyBufferRegion(s_readbackBuffer.Get(), 0, m_particleLightingBuffer.Get(), 0, 10 * sizeof(float) * 4);
++
++            // Transition back to UAV
++            toCopy.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
++            toCopy.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++            m_cmdList->ResourceBarrier(1, &toCopy);
++
++            LOGI("RT Lighting GPU readback scheduled for frame 60");
++        }
++    }
++
++    if (s_readbackFrameCounter == 62) {  // Read results 2 frames later (GPU finished)
++        if (s_readbackBuffer) {
++            void* pData = nullptr;
++            D3D12_RANGE readRange = { 0, 10 * sizeof(float) * 4 };
++            HRESULT hr = s_readbackBuffer->Map(0, &readRange, &pData);
++
++            if (SUCCEEDED(hr)) {
++                float* lightingData = static_cast<float*>(pData);
++                LOGI("=== RT LIGHTING BUFFER READBACK (first 10 particles) ===");
++                for (int i = 0; i < 10; i++) {
++                    float r = lightingData[i * 4 + 0];
++                    float g = lightingData[i * 4 + 1];
++                    float b = lightingData[i * 4 + 2];
++                    float a = lightingData[i * 4 + 3];
++                    LOGI("Particle " + std::to_string(i) + ": R=" + std::to_string(r) +
++                         " G=" + std::to_string(g) + " B=" + std::to_string(b) + " A=" + std::to_string(a));
++                }
++                LOGI("=== Expected: G=100.0 for test pattern ===");
++
++                D3D12_RANGE writeRange = { 0, 0 };
++                s_readbackBuffer->Unmap(0, &writeRange);
++            } else {
++                LOGE("Failed to map lighting readback buffer");
++            }
++        }
++    }
++
++    s_readbackFrameCounter++;
++
++    // Dispatch RT lighting compute shader
++    m_cmdList->SetPipelineState(m_rtLightingPSO.Get());
++    m_cmdList->SetComputeRootSignature(m_rtLightingRootSig.Get());
++
++    // Bind particle SRV (t0) and BLAS SRV (t1)
++    UINT particleSrvIndex = m_meshParticleSystem->GetParticleBufferSRVIndex();
++    D3D12_GPU_DESCRIPTOR_HANDLE srvGpuHandles = m_descriptorAllocator->GetGPUHandle(particleSrvIndex);
++    m_cmdList->SetComputeRootDescriptorTable(0, srvGpuHandles);  // t0 and t1 in same table
++
++    // Bind lighting UAV (u0)
++    D3D12_GPU_DESCRIPTOR_HANDLE lightingUavGpuHandle = m_descriptorAllocator->GetGPUHandle(m_particleLightingUavIndex);
++    m_cmdList->SetComputeRootDescriptorTable(1, lightingUavGpuHandle);
++
++    // Bind constants (b0): particleCount, raysPerParticle, maxDistance, intensity
++    struct RTLightingConstants {
++        uint32_t particleCount;
++        uint32_t raysPerParticle;
++        float maxLightingDistance;
++        float lightingIntensity;
++    } constants = {
++        m_mode9ParticleCount,
++        8,      // 8 rays per particle for high quality
++        20.0f,  // Max lighting distance
++        100.0f  // DIAGNOSTIC: Intensity multiplier (100x for visibility testing!)
++    };
++    m_cmdList->SetComputeRoot32BitConstants(2, 4, &constants, 0);
++
++    // Dispatch (100,000 particles / 64 threads = 1563 groups)
++    uint32_t numGroups = (m_mode9ParticleCount + 63) / 64;
++    m_cmdList->Dispatch(numGroups, 1, 1);
++
++    // UAV barrier for lighting buffer
++    D3D12_RESOURCE_BARRIER lightingBarrier = {};
++    lightingBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
++    lightingBarrier.UAV.pResource = m_particleLightingBuffer.Get();
++    m_cmdList->ResourceBarrier(1, &lightingBarrier);
++}
++
+ bool App::createShadowComputePipeline() {
+     // Load shadow compute shader DXIL (DXR 1.1 RayQuery)
+     LOGI("Loading shadow compute shader (DXR 1.1 RayQuery)...");
+@@ -4056,6 +4361,216 @@ bool App::createLightingComputePipelines() {
+     return true;
+ }
+ 
++bool App::createRTLightingPipeline() {
++    LOGI("Creating RT lighting compute pipelines...");
++
++    // ========== 1. AABB Generation Pipeline ==========
++    LOGI("Loading AABB generation shader...");
++    Microsoft::WRL::ComPtr<ID3DBlob> aabbShaderBlob;
++    std::string errorMsg;
++    if (!FileLoader::LoadDXILShader("shaders/dxr/generate_particle_aabbs.dxil", aabbShaderBlob, errorMsg)) {
++        LOGE("Failed to load AABB generation shader: " + errorMsg);
++        return false;
++    }
++    LOGI("AABB generation shader loaded (" + std::to_string(aabbShaderBlob->GetBufferSize()) + " bytes)");
++
++    // Root signature for AABB gen:
++    // Param 0: Particle SRV (t0)
++    // Param 1: AABB UAV (u0)
++    // Param 2: Constants (b0) - particleCount, particleRadius
++
++    D3D12_DESCRIPTOR_RANGE aabbSrvRange{};
++    aabbSrvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
++    aabbSrvRange.NumDescriptors = 1;
++    aabbSrvRange.BaseShaderRegister = 0;  // t0
++    aabbSrvRange.RegisterSpace = 0;
++    aabbSrvRange.OffsetInDescriptorsFromTableStart = 0;
++
++    D3D12_DESCRIPTOR_RANGE aabbUavRange{};
++    aabbUavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
++    aabbUavRange.NumDescriptors = 1;
++    aabbUavRange.BaseShaderRegister = 0;  // u0
++    aabbUavRange.RegisterSpace = 0;
++    aabbUavRange.OffsetInDescriptorsFromTableStart = 0;
++
++    D3D12_ROOT_PARAMETER aabbParams[3]{};
++
++    aabbParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++    aabbParams[0].DescriptorTable.NumDescriptorRanges = 1;
++    aabbParams[0].DescriptorTable.pDescriptorRanges = &aabbSrvRange;
++    aabbParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    aabbParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++    aabbParams[1].DescriptorTable.NumDescriptorRanges = 1;
++    aabbParams[1].DescriptorTable.pDescriptorRanges = &aabbUavRange;
++    aabbParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    aabbParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++    aabbParams[2].Constants.Num32BitValues = 4;  // particleCount, particleRadius, padding[2]
++    aabbParams[2].Constants.ShaderRegister = 0;  // b0
++    aabbParams[2].Constants.RegisterSpace = 0;
++    aabbParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    D3D12_ROOT_SIGNATURE_DESC aabbRootSigDesc{};
++    aabbRootSigDesc.NumParameters = 3;
++    aabbRootSigDesc.pParameters = aabbParams;
++    aabbRootSigDesc.NumStaticSamplers = 0;
++    aabbRootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
++
++    Microsoft::WRL::ComPtr<ID3DBlob> serializedAabbRootSig;
++    Microsoft::WRL::ComPtr<ID3DBlob> aabbErrorBlob;
++    HRESULT hr = D3D12SerializeRootSignature(&aabbRootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
++                                              &serializedAabbRootSig, &aabbErrorBlob);
++    if (FAILED(hr)) {
++        LOGE("Failed to serialize AABB generation root signature");
++        return false;
++    }
++
++    hr = m_device->CreateRootSignature(0, serializedAabbRootSig->GetBufferPointer(),
++                                        serializedAabbRootSig->GetBufferSize(),
++                                        IID_PPV_ARGS(&m_aabbGenRootSig));
++    if (FAILED(hr)) {
++        LOGE("Failed to create AABB generation root signature");
++        return false;
++    }
++
++    D3D12_COMPUTE_PIPELINE_STATE_DESC aabbComputeDesc{};
++    aabbComputeDesc.pRootSignature = m_aabbGenRootSig.Get();
++    aabbComputeDesc.CS.pShaderBytecode = aabbShaderBlob->GetBufferPointer();
++    aabbComputeDesc.CS.BytecodeLength = aabbShaderBlob->GetBufferSize();
++
++    hr = m_device->CreateComputePipelineState(&aabbComputeDesc, IID_PPV_ARGS(&m_aabbGenPSO));
++    if (FAILED(hr)) {
++        LOGE("Failed to create AABB generation PSO");
++        return false;
++    }
++    LOGI("AABB generation pipeline created successfully");
++
++    // Create constants buffer for AABB generation
++    const UINT aabbConstantBufferSize = 256;
++    D3D12_HEAP_PROPERTIES uploadHeapProps = {};
++    uploadHeapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
++    D3D12_RESOURCE_DESC cbDesc = {};
++    cbDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++    cbDesc.Width = aabbConstantBufferSize;
++    cbDesc.Height = 1;
++    cbDesc.DepthOrArraySize = 1;
++    cbDesc.MipLevels = 1;
++    cbDesc.Format = DXGI_FORMAT_UNKNOWN;
++    cbDesc.SampleDesc.Count = 1;
++    cbDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++    cbDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
++
++    hr = m_device->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &cbDesc,
++        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_aabbConstantsBuffer));
++    if (FAILED(hr)) {
++        LOGE("Failed to create AABB constants buffer");
++        return false;
++    }
++
++    // ========== 2. RT Lighting Pipeline ==========
++    LOGI("Loading RT lighting shader...");
++    Microsoft::WRL::ComPtr<ID3DBlob> rtLightingShaderBlob;
++    errorMsg.clear();
++    if (!FileLoader::LoadDXILShader("shaders/dxr/particle_raytraced_lighting_cs.dxil", rtLightingShaderBlob, errorMsg)) {
++        LOGE("Failed to load RT lighting shader: " + errorMsg);
++        return false;
++    }
++    LOGI("RT lighting shader loaded (" + std::to_string(rtLightingShaderBlob->GetBufferSize()) + " bytes)");
++
++    // Root signature for RT lighting:
++    // Param 0: Particle SRV (t0)
++    // Param 1: BLAS SRV (t1) - acceleration structure
++    // Param 2: Lighting UAV (u0)
++    // Param 3: Constants (b0) - particleCount, raysPerParticle, maxDistance, intensity
++
++    D3D12_DESCRIPTOR_RANGE rtSrvRanges[2]{};
++    rtSrvRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
++    rtSrvRanges[0].NumDescriptors = 1;
++    rtSrvRanges[0].BaseShaderRegister = 0;  // t0 particles
++    rtSrvRanges[0].RegisterSpace = 0;
++    rtSrvRanges[0].OffsetInDescriptorsFromTableStart = 0;
++
++    rtSrvRanges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
++    rtSrvRanges[1].NumDescriptors = 1;
++    rtSrvRanges[1].BaseShaderRegister = 1;  // t1 BLAS
++    rtSrvRanges[1].RegisterSpace = 0;
++    rtSrvRanges[1].OffsetInDescriptorsFromTableStart = 1;
++
++    D3D12_DESCRIPTOR_RANGE rtUavRange{};
++    rtUavRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
++    rtUavRange.NumDescriptors = 1;
++    rtUavRange.BaseShaderRegister = 0;  // u0 lighting output
++    rtUavRange.RegisterSpace = 0;
++    rtUavRange.OffsetInDescriptorsFromTableStart = 0;
++
++    D3D12_ROOT_PARAMETER rtParams[3]{};
++
++    rtParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++    rtParams[0].DescriptorTable.NumDescriptorRanges = 2;  // Both SRVs
++    rtParams[0].DescriptorTable.pDescriptorRanges = rtSrvRanges;
++    rtParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    rtParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
++    rtParams[1].DescriptorTable.NumDescriptorRanges = 1;
++    rtParams[1].DescriptorTable.pDescriptorRanges = &rtUavRange;
++    rtParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    rtParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++    rtParams[2].Constants.Num32BitValues = 4;  // particleCount, raysPerParticle, maxDistance, intensity
++    rtParams[2].Constants.ShaderRegister = 0;  // b0
++    rtParams[2].Constants.RegisterSpace = 0;
++    rtParams[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++
++    D3D12_ROOT_SIGNATURE_DESC rtRootSigDesc{};
++    rtRootSigDesc.NumParameters = 3;
++    rtRootSigDesc.pParameters = rtParams;
++    rtRootSigDesc.NumStaticSamplers = 0;
++    rtRootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
++
++    Microsoft::WRL::ComPtr<ID3DBlob> serializedRtRootSig;
++    Microsoft::WRL::ComPtr<ID3DBlob> rtErrorBlob;
++    hr = D3D12SerializeRootSignature(&rtRootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
++                                      &serializedRtRootSig, &rtErrorBlob);
++    if (FAILED(hr)) {
++        LOGE("Failed to serialize RT lighting root signature");
++        return false;
++    }
++
++    hr = m_device->CreateRootSignature(0, serializedRtRootSig->GetBufferPointer(),
++                                        serializedRtRootSig->GetBufferSize(),
++                                        IID_PPV_ARGS(&m_rtLightingRootSig));
++    if (FAILED(hr)) {
++        LOGE("Failed to create RT lighting root signature");
++        return false;
++    }
++
++    D3D12_COMPUTE_PIPELINE_STATE_DESC rtComputeDesc{};
++    rtComputeDesc.pRootSignature = m_rtLightingRootSig.Get();
++    rtComputeDesc.CS.pShaderBytecode = rtLightingShaderBlob->GetBufferPointer();
++    rtComputeDesc.CS.BytecodeLength = rtLightingShaderBlob->GetBufferSize();
++
++    hr = m_device->CreateComputePipelineState(&rtComputeDesc, IID_PPV_ARGS(&m_rtLightingPSO));
++    if (FAILED(hr)) {
++        LOGE("Failed to create RT lighting PSO: 0x" + std::to_string(static_cast<uint32_t>(hr)));
++        return false;
++    }
++
++    LOGI("RT lighting pipeline created successfully");
++
++    // Create constants buffer for RT lighting
++    const UINT rtConstantBufferSize = 256;
++    hr = m_device->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &cbDesc,
++        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_rtLightingConstantsBuffer));
++    if (FAILED(hr)) {
++        LOGE("Failed to create RT lighting constants buffer");
++        return false;
++    }
++
++    LOGI("Mode 9.2 RT lighting pipelines ready");
++    return true;
++}
++
+ // ============================================================================
+ // VOXEL PARTICLE SYSTEM IMPLEMENTATION (MODE 6)
+ // ============================================================================

@@ -35,9 +35,14 @@ cbuffer ModeParams : register(b1) {
     float3 modePadding;
 };
 
+// Particle lighting structure (Mode 9.2+)
+struct ParticleLighting {
+    float4 color;  // rgb = additive lighting, w = unused
+};
+
 StructuredBuffer<Particle> particles : register(t0);
 Texture2D<float> shadowMap : register(t1);  // Shadow map (Mode 9.1+)
-Buffer<float4> particleLighting : register(t2);  // Particle lighting (Mode 9.2+) - Typed buffer, not structured
+StructuredBuffer<ParticleLighting> particleLighting : register(t2);  // Particle lighting (Mode 9.2+)
 SamplerState shadowSampler : register(s0);
 ConstantBuffer<RenderConstants> renderConstants : register(b0);
 
@@ -97,8 +102,9 @@ void main(
 
     Particle p = particles[particleIndex];
 
-    // Mode 9.2: Read particle lighting contribution
-    float3 lighting = particleLighting[particleIndex].rgb;
+    // Mode 9.2+: ALWAYS apply lighting (no mode check - mesh shader can't read root constants!)
+    // DIAGNOSTIC: Bypass mode check entirely
+    float3 lighting = float3(0.0, 100.0, 0.0);  // Hardcoded green for ALL modes
 
     // Calculate camera-facing billboard vectors (matches Vulkan reference)
     float3 worldPos = p.position;
