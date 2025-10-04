@@ -48,15 +48,16 @@ bool ParticleSystem::Initialize(ID3D12Device* device, uint32_t particleCount) {
         return false;
     }
 
-    // Mode 10: Create compute + traditional VS/PS pipelines
+    // Mode 10: Create compute + traditional VS/PS pipelines (OPTIONAL - don't fail initialization)
     if (!CreateComputeParticlePipeline()) {
-        LOGE("Failed to create compute particle build pipeline");
-        return false;
-    }
-
-    if (!CreateTraditionalRasterPipeline()) {
-        LOGE("Failed to create traditional raster pipeline");
-        return false;
+        LOGW("Failed to create compute particle build pipeline - Mode 10 disabled");
+        m_mode10Available = false;
+    } else if (!CreateTraditionalRasterPipeline()) {
+        LOGW("Failed to create traditional raster pipeline - Mode 10 disabled");
+        m_mode10Available = false;
+    } else {
+        LOGI("Mode 10 (Compute + Traditional VS/PS) pipelines created successfully");
+        m_mode10Available = true;
     }
 
     InitializeAccretionDisk();
@@ -507,7 +508,7 @@ bool ParticleSystem::CreateTraditionalRasterPipeline() {
     // Root signature: empty (all data comes from vertex buffer)
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
-    rootSigDesc.Init_1_1(0, nullptr);
+    rootSigDesc.Init_1_1(0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
@@ -541,8 +542,9 @@ bool ParticleSystem::CreateTraditionalRasterPipeline() {
     psoDesc.NumRenderTargets = 1;
     psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     psoDesc.SampleDesc.Count = 1;
-    psoDesc.SampleDesc.Quality = 0;  // Required for non-MSAA rendering
+    psoDesc.SampleDesc.Quality = 0;
     psoDesc.SampleMask = UINT_MAX;
+    psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
     // Blend state for alpha blending
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
@@ -568,6 +570,39 @@ bool ParticleSystem::CreateTraditionalRasterPipeline() {
     hr = m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_traditionalRasterPSO));
     if (FAILED(hr)) {
         LOGE("Failed to create traditional raster PSO: " + std::to_string(static_cast<uint32_t>(hr)));
+
+        // Query D3D12 InfoQueue for detailed error messages
+        Microsoft::WRL::ComPtr<ID3D12InfoQueue> infoQueue;
+        if (SUCCEEDED(m_device->QueryInterface(IID_PPV_ARGS(&infoQueue)))) {
+            UINT64 numMessages = infoQueue->GetNumStoredMessages();
+            LOGE("=== D3D12 Debug Layer Messages (" + std::to_string(numMessages) + " messages) ===");
+
+            for (UINT64 i = 0; i < numMessages; i++) {
+                SIZE_T messageLength = 0;
+                infoQueue->GetMessage(i, nullptr, &messageLength);
+
+                if (messageLength > 0) {
+                    D3D12_MESSAGE* message = (D3D12_MESSAGE*)malloc(messageLength);
+                    if (message && SUCCEEDED(infoQueue->GetMessage(i, message, &messageLength))) {
+                        std::string severityStr;
+                        switch (message->Severity) {
+                            case D3D12_MESSAGE_SEVERITY_CORRUPTION: severityStr = "CORRUPTION"; break;
+                            case D3D12_MESSAGE_SEVERITY_ERROR: severityStr = "ERROR"; break;
+                            case D3D12_MESSAGE_SEVERITY_WARNING: severityStr = "WARNING"; break;
+                            case D3D12_MESSAGE_SEVERITY_INFO: severityStr = "INFO"; break;
+                            case D3D12_MESSAGE_SEVERITY_MESSAGE: severityStr = "MESSAGE"; break;
+                        }
+
+                        LOGE("[D3D12 " + severityStr + "] " + std::string(message->pDescription));
+                    }
+                    free(message);
+                }
+            }
+
+            infoQueue->ClearStoredMessages();
+            LOGE("=== End D3D12 Debug Messages ===");
+        }
+
         return false;
     }
 

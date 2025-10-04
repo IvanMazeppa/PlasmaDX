@@ -123,8 +123,12 @@ LRESULT CALLBACK App::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 		case VK_F9:  // Mode 10: Toggle compute + traditional VS/PS rendering
 			if (g_appInstance && g_appInstance->m_demoMode == App::DemoMode::AccretionMeshParticles) {
-				g_appInstance->m_mode10Active = !g_appInstance->m_mode10Active;
-				LOGI(g_appInstance->m_mode10Active ? "Mode 10: ON (Compute + Traditional VS/PS)" : "Mode 10: OFF (Mesh Shader)");
+				if (g_appInstance->m_meshParticleSystem && !g_appInstance->m_meshParticleSystem->IsMode10Available()) {
+					LOGW("Mode 10 is not available (PSO creation failed) - cannot enable");
+				} else {
+					g_appInstance->m_mode10Active = !g_appInstance->m_mode10Active;
+					LOGI(g_appInstance->m_mode10Active ? "Mode 10: ON (Compute + Traditional VS/PS)" : "Mode 10: OFF (Mesh Shader)");
+				}
 			}
 			break;
 
@@ -792,7 +796,9 @@ bool App::createWindow(HINSTANCE hInstance, int nCmdShow) {
 
 bool App::createDevice() {
 	// Device creation matrix: test combinations of Agility/Debug (DXR_0022 - using Env helper)
-	bool useDebug = !Env::GetBool("PLASMADX_NO_DEBUG", false);
+	// TEMPORARY: Force debug layer ON for PSO creation diagnostics
+	bool useDebug = true;  // Override: always enable debug layer for now
+	//bool useDebug = !Env::GetBool("PLASMADX_NO_DEBUG", false);
 
 	LOGI("=== DEVICE CREATION MATRIX ===");
 	char matrixLog[256];
@@ -808,6 +814,14 @@ bool App::createDevice() {
 		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
 			debug->EnableDebugLayer();
 			LOGI("D3D12 Debug Layer enabled");
+
+			// GPU-based validation disabled - causes crashes with some PSOs
+			// ComPtr<ID3D12Debug1> debug1;
+			// if (SUCCEEDED(debug.As(&debug1))) {
+			// 	debug1->SetEnableGPUBasedValidation(TRUE);
+			// 	debug1->SetEnableSynchronizedCommandQueueValidation(TRUE);
+			// 	LOGI("GPU-based validation enabled for PSO diagnostics");
+			// }
 		}
 
 		ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dredSettings;

@@ -100,6 +100,9 @@ public:
     void SetParticleBufferSRVIndex(UINT index) { m_particleBufferSrvIndex = index; }
     UINT GetParticleBufferSRVIndex() const { return m_particleBufferSrvIndex; }
 
+    // Mode 10: Check if compute + traditional VS/PS pipeline is available
+    bool IsMode10Available() const { return m_mode10Available; }
+
 private:
     bool CreateBuffers();
     bool CreateComputePipeline();
@@ -141,6 +144,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_traditionalRasterRootSig;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_particleVertexBuffer;  // 400K vertices (100K particles × 4)
     Microsoft::WRL::ComPtr<ID3D12Resource> m_particleIndexBuffer;   // 600K indices (100K particles × 6)
+    bool m_mode10Available = false;  // True if Mode 10 pipelines created successfully
 
     // Parameters
     uint32_t m_particleCount;
